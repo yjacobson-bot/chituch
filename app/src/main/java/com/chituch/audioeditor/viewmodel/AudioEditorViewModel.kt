@@ -174,7 +174,6 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
             _state.value = _state.value.copy(isProcessing = true, showExportDialog = false, errorMessage = null)
             try {
                 val files = AudioProcessor.processAudio(
-                    context = context,
                     inputPath = current.audioPath,
                     segments = segments,
                     editMode = current.editMode,

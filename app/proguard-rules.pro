@@ -1,2 +1,1 @@
--keep class com.arthenica.ffmpegkit.** { *; }
--keep class com.arthenica.smartexception.** { *; }
+# No external native libraries needed - using Android built-in MediaCodec/MediaMuxer

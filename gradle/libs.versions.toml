@@ -9,7 +9,6 @@ lifecycleRuntimeKtx = "2.8.4"
 activityCompose = "1.9.1"
 composeBom = "2024.08.00"
 coroutines = "1.8.1"
-ffmpegKit = "6.0-2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -29,7 +28,6 @@ androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
-ffmpeg-kit-audio = { group = "com.arthenica", name = "ffmpeg-kit-audio", version.ref = "ffmpegKit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
