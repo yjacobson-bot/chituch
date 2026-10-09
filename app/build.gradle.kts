@@ -4,6 +4,16 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// versionCode: major*10000 + minor*100 + patch  (e.g. 1.4.1 → 10401)
+fun versionNameToCode(name: String): Int {
+    val parts = name.split(".").map { it.toIntOrNull() ?: 0 }
+    return (parts.getOrElse(0) { 0 } * 10000) +
+           (parts.getOrElse(1) { 0 } * 100) +
+           (parts.getOrElse(2) { 0 })
+}
+
+val appVersionName = project.findProperty("appVersionName") as String? ?: "1.4.1"
+
 android {
     namespace = "com.chituch.audioeditor"
     compileSdk = 35
@@ -12,15 +22,28 @@ android {
         applicationId = "com.chituch.audioeditor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = versionNameToCode(appVersionName)
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("chituch-release.jks")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "chituch123"
+            keyAlias = "chituch"
+            keyPassword = System.getenv("KEYSTORE_PASSWORD") ?: "chituch123"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

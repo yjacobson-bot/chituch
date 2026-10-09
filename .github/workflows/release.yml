@@ -25,8 +25,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Decode keystore
+        run: echo "${{ secrets.RELEASE_KEYSTORE_B64 }}" | base64 -d > app/chituch-release.jks
+
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          VER=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
+          VER=${VER#v}
+          ./gradlew assembleDebug --no-daemon -PappVersionName=${VER}
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
 
       - name: Rename APK
         run: |
