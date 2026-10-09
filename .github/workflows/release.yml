@@ -27,12 +27,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set Android SDK path
-        run: |
-          ANDROID_SDK_PATH="/usr/local/lib/android/sdk"
-          echo "ANDROID_HOME=${ANDROID_SDK_PATH}" >> $GITHUB_ENV
-          yes | ${ANDROID_SDK_PATH}/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          echo "sdk.dir=${ANDROID_SDK_PATH}" > local.properties
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -58,9 +54,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.TAG }}
-          name: "חיתוכצ'יק ${{ steps.tag.outputs.TAG }}"
+          name: "חיתוכצ׳יק ${{ steps.tag.outputs.TAG }}"
           body: |
-            ## חיתוכצ'יק — עורך אודיו לאנדרואיד
+            ## חיתוכצ׳יק — עורך אודיו לאנדרואיד
 
             ### פיצ'רים
             - עריכת אודיו **100% אופליין** — ללא אינטרנט
@@ -70,7 +66,7 @@ jobs:
             - Fade In/Out לכל קטע (0–5 שניות)
             - זום גל עד 30× + גלילה
             - ביטול/חזרה (Undo/Redo)
-            - תצוגה מקדימית לקטע בנפרד
+            - תצוגה מקדימה לקטע בנפרד
             - מהירות נגינה 0.5×–2×
             - שמירה לספריית מוזיקה
 

@@ -46,6 +46,7 @@ data class AudioEditorState(
     val errorMessage: String? = null,
     val successMessage: String? = null,
     val showExportDialog: Boolean = false,
+    val showAudioBrowser: Boolean = false,
     val waveformZoom: Float = 1f,
     val waveformScrollMs: Long = 0L,
     val canUndo: Boolean = false,
@@ -71,11 +72,14 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
             _state.value = _state.value.copy(isPlaying = false)
         }
         audioPlayer.setOnDurationReady { dur ->
+            val defaultStart = dur / 10L
+            val defaultEnd = dur * 9L / 10L
+            val defaultPairs = listOf(SegmentPair(0, defaultStart, defaultEnd))
             _state.value = _state.value.copy(
                 durationMs = dur,
-                segmentPairs = listOf(SegmentPair(0, 0L, dur))
+                segmentPairs = defaultPairs
             )
-            pushHistory(listOf(SegmentPair(0, 0L, dur)))
+            pushHistory(defaultPairs)
         }
     }
 
@@ -244,6 +248,9 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
 
     fun showExportDialog() { _state.value = _state.value.copy(showExportDialog = true) }
     fun hideExportDialog() { _state.value = _state.value.copy(showExportDialog = false) }
+
+    fun openAudioBrowser() { _state.value = _state.value.copy(showAudioBrowser = true) }
+    fun closeAudioBrowser() { _state.value = _state.value.copy(showAudioBrowser = false) }
 
     fun processAndExport() {
         val cur = _state.value
