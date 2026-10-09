@@ -1,6 +1,6 @@
 pluginManagement {
     repositories {
-        maven("https://maven.google.com") {
+        google {
             content {
                 includeGroupByRegex("com\\.android.*")
                 includeGroupByRegex("com\\.google.*")
@@ -14,7 +14,7 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        maven("https://maven.google.com")
+        google()
         mavenCentral()
     }
 }
