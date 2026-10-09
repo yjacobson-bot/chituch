@@ -18,8 +18,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.chituch.audioeditor.ui.theme.segmentColors
 import com.chituch.audioeditor.viewmodel.SegmentPair
 import kotlin.math.abs
@@ -49,6 +52,14 @@ fun WaveformView(
 
     var canvasWidth by remember { mutableStateOf(0f) }
     val HANDLE_TOUCH_PX = 44f
+
+    val labelPaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            textSize = 28f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+    }
 
     fun xToMs(x: Float): Long = (startMs + (x / canvasWidth.coerceAtLeast(1f)) * visibleMs).toLong().coerceIn(0L, durationMs)
     fun msToX(ms: Long): Float {
@@ -182,6 +193,23 @@ fun WaveformView(
                         close()
                     }
                     drawPath(botPath, color = color)
+                    // Timestamp label above start handle
+                    drawIntoCanvas { canvas ->
+                        val label = formatTime(pair.startMs)
+                        labelPaint.color = android.graphics.Color.argb(230, (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())
+                        val textW = labelPaint.measureText(label)
+                        val lx = (sx - textW / 2f).coerceIn(2f, size.width - textW - 2f)
+                        val bgPaint = android.graphics.Paint().apply {
+                            this.color = android.graphics.Color.argb(180, 20, 20, 40)
+                            isAntiAlias = true
+                        }
+                        val pad = 4f
+                        canvas.nativeCanvas.drawRoundRect(
+                            lx - pad, triSize + 4f, lx + textW + pad, triSize + labelPaint.textSize + 8f,
+                            6f, 6f, bgPaint
+                        )
+                        canvas.nativeCanvas.drawText(label, lx, triSize + labelPaint.textSize + 2f, labelPaint)
+                    }
                 }
                 if (pair.endMs in startMs..endMs) {
                     drawLine(color = color, start = Offset(ex, 0f), end = Offset(ex, size.height), strokeWidth = strokeW)
@@ -199,6 +227,23 @@ fun WaveformView(
                         close()
                     }
                     drawPath(botPath, color = color)
+                    // Timestamp label above end handle
+                    drawIntoCanvas { canvas ->
+                        val label = formatTime(pair.endMs)
+                        labelPaint.color = android.graphics.Color.argb(230, (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())
+                        val textW = labelPaint.measureText(label)
+                        val lx = (ex - textW / 2f).coerceIn(2f, size.width - textW - 2f)
+                        val bgPaint = android.graphics.Paint().apply {
+                            this.color = android.graphics.Color.argb(180, 20, 20, 40)
+                            isAntiAlias = true
+                        }
+                        val pad = 4f
+                        canvas.nativeCanvas.drawRoundRect(
+                            lx - pad, triSize + 4f, lx + textW + pad, triSize + labelPaint.textSize + 8f,
+                            6f, 6f, bgPaint
+                        )
+                        canvas.nativeCanvas.drawText(label, lx, triSize + labelPaint.textSize + 2f, labelPaint)
+                    }
                 }
             }
 

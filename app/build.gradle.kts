@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// versionCode: major*10000 + minor*100 + patch  (e.g. 1.4.1 → 10401)
+// versionCode: major*10000 + minor*100 + patch  (e.g. 1.4.2 → 10402)
 fun versionNameToCode(name: String): Int {
     val parts = name.split(".").map { it.toIntOrNull() ?: 0 }
     return (parts.getOrElse(0) { 0 } * 10000) +
@@ -12,7 +12,7 @@ fun versionNameToCode(name: String): Int {
            (parts.getOrElse(2) { 0 })
 }
 
-val appVersionName = project.findProperty("appVersionName") as String? ?: "1.4.1"
+val appVersionName = project.findProperty("appVersionName") as String? ?: "1.4.2"
 
 android {
     namespace = "com.chituch.audioeditor"
