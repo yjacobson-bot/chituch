@@ -187,14 +187,14 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     fun setWaveformZoom(zoom: Float) {
         val cur = _state.value
         val newZoom = zoom.coerceIn(1f, 30f)
-        val maxScroll = (cur.durationMs - cur.durationMs / newZoom).coerceAtLeast(0L)
+        val maxScroll = (cur.durationMs - (cur.durationMs / newZoom).toLong()).coerceAtLeast(0L)
         val newScroll = cur.waveformScrollMs.coerceIn(0L, maxScroll)
         _state.value = cur.copy(waveformZoom = newZoom, waveformScrollMs = newScroll)
     }
 
     fun setWaveformScroll(scrollMs: Long) {
         val cur = _state.value
-        val maxScroll = (cur.durationMs - cur.durationMs / cur.waveformZoom).coerceAtLeast(0L)
+        val maxScroll = (cur.durationMs - (cur.durationMs / cur.waveformZoom).toLong()).coerceAtLeast(0L)
         _state.value = cur.copy(waveformScrollMs = scrollMs.coerceIn(0L, maxScroll))
     }
 
