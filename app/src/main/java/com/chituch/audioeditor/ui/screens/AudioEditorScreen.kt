@@ -2,6 +2,8 @@ package com.chituch.audioeditor.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -46,6 +48,22 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    var pendingSaveFile by remember { mutableStateOf<File?>(null) }
+
+    val saveElsewhereLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*")
+    ) { uri ->
+        val file = pendingSaveFile ?: return@rememberLauncherForActivityResult
+        pendingSaveFile = null
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().copyTo(out) }
+            val displayPath = uri.lastPathSegment?.substringAfterLast(':') ?: uri.toString()
+            snackbarHostState.showSnackbar("נשמר: $displayPath")
+        } catch (_: Exception) {
+            snackbarHostState.showSnackbar("שגיאה בשמירה")
+        }
+    }
 
     LaunchedEffect(state.errorMessage) { state.errorMessage?.let { snackbarHostState.showSnackbar(it); vm.clearMessages() } }
     LaunchedEffect(state.successMessage) { state.successMessage?.let { snackbarHostState.showSnackbar(it); vm.clearMessages() } }
@@ -375,8 +393,16 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                                 Text(file.name, style = MaterialTheme.typography.bodySmall, color = Color(0xFF1B5E20))
                                                 Text(formatFileSize(file.length()), style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
                                             }
-                                            IconButton(onClick = { shareFile(context, file) }, modifier = Modifier.size(32.dp)) {
-                                                Icon(Icons.Default.Share, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                                            Row {
+                                                IconButton(onClick = {
+                                                    pendingSaveFile = file
+                                                    saveElsewhereLauncher.launch(file.name)
+                                                }, modifier = Modifier.size(32.dp)) {
+                                                    Icon(Icons.Default.SaveAlt, "שמור למיקום אחר", tint = Color(0xFF1565C0), modifier = Modifier.size(18.dp))
+                                                }
+                                                IconButton(onClick = { shareFile(context, file) }, modifier = Modifier.size(32.dp)) {
+                                                    Icon(Icons.Default.Share, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                                                }
                                             }
                                         }
                                     }
@@ -460,19 +486,6 @@ private fun ExportDialog(
                     }
                 }
 
-                HorizontalDivider()
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { onSettingsChanged(settings.copy(saveToMusicLibrary = !settings.saveToMusicLibrary)) },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("שמור בספריית מוזיקה", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Music/חיתוך/", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                    }
-                    Switch(checked = settings.saveToMusicLibrary, onCheckedChange = { onSettingsChanged(settings.copy(saveToMusicLibrary = it)) })
-                }
             }
         },
         confirmButton = { Button(onClick = onConfirm) { Text("ייצא") } },

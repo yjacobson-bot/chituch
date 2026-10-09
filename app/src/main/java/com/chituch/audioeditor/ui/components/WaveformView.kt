@@ -90,12 +90,17 @@ fun WaveformView(
                             }
                             dragging = best
                         },
-                        onDrag = { change, _ ->
+                        onDrag = { change, dragAmount ->
                             change.consume()
-                            val d = dragging ?: return@detectDragGestures
-                            val ms = xToMs(change.position.x)
-                            if (d.isStart) onSegmentStartChanged(d.segId, ms, true)
-                            else onSegmentEndChanged(d.segId, ms, true)
+                            val d = dragging
+                            if (d == null) {
+                                val panMs = -(dragAmount.x / canvasWidth.coerceAtLeast(1f)) * visibleMs
+                                onScrollChanged((scrollOffsetMs + panMs.toLong()))
+                            } else {
+                                val ms = xToMs(change.position.x)
+                                if (d.isStart) onSegmentStartChanged(d.segId, ms, true)
+                                else onSegmentEndChanged(d.segId, ms, true)
+                            }
                         },
                         onDragEnd = {
                             dragging?.let { d ->

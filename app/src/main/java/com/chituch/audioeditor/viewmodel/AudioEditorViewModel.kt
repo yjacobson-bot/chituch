@@ -6,7 +6,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.chituch.audioeditor.audio.AudioPlayer
 import com.chituch.audioeditor.audio.AudioProcessor
-import com.chituch.audioeditor.audio.MediaStoreSaver
 import com.chituch.audioeditor.audio.WaveformExtractor
 import com.chituch.audioeditor.model.EditMode
 import com.chituch.audioeditor.model.ExportSettings
@@ -67,7 +66,6 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         prefs.edit()
             .putString("output_format", settings.outputFormat.name)
             .putInt("bitrate", settings.bitrateKbps)
-            .putBoolean("save_to_library", settings.saveToMusicLibrary)
             .putFloat("speed", speed)
             .apply()
     }
@@ -76,9 +74,8 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         val formatName = prefs.getString("output_format", OutputFormat.ORIGINAL.name) ?: OutputFormat.ORIGINAL.name
         val format = try { OutputFormat.valueOf(formatName) } catch (_: Exception) { OutputFormat.ORIGINAL }
         val bitrate = prefs.getInt("bitrate", 192)
-        val saveToLib = prefs.getBoolean("save_to_library", false)
         val speed = prefs.getFloat("speed", 1f)
-        return Pair(ExportSettings(outputFormat = format, bitrateKbps = bitrate, saveToMusicLibrary = saveToLib), speed)
+        return Pair(ExportSettings(outputFormat = format, bitrateKbps = bitrate), speed)
     }
 
     // Undo/redo history — stores snapshots of segmentPairs
@@ -337,7 +334,7 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         val cur = _state.value
         if (cur.audioPath.isEmpty() || cur.durationMs == 0L) return
         val context = getApplication<Application>()
-        val outputDir = File(context.getExternalFilesDir(null), "exports").apply { mkdirs() }
+        val outputDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "exports").apply { mkdirs() }
         val segments = cur.segmentPairs.mapIndexed { i, p -> Segment(i, p.startMs, p.endMs, p.fadeInMs, p.fadeOutMs) }
 
         viewModelScope.launch {
@@ -356,23 +353,12 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
                     _state.value = _state.value.copy(isProcessing = false, errorMessage = "שגיאה בעיבוד הקובץ")
                     return@launch
                 }
-
-                val savedUris = if (cur.exportSettings.saveToMusicLibrary) {
-                    val saveMime = when {
-                        cur.exportSettings.outputFormat != OutputFormat.ORIGINAL -> cur.exportSettings.outputFormat.mimeType
-                        cur.inputMimeType.contains("wav") -> "audio/wav"
-                        else -> "audio/mp4"
-                    }
-                    files.mapNotNull { f ->
-                        MediaStoreSaver.saveToMusicLibrary(context, f, saveMime)
-                    }
-                } else emptyList()
-
+                val savedInInternal = outputDir.absolutePath.startsWith(context.filesDir.absolutePath)
+                val locationHint = if (savedInInternal) "זיכרון פנימי" else "זיכרון חיצוני"
                 _state.value = _state.value.copy(
                     isProcessing = false,
                     exportedFiles = files,
-                    successMessage = if (cur.exportSettings.saveToMusicLibrary && savedUris.isNotEmpty())
-                        "נשמר בספריית המוזיקה (${files.size} קבצים)" else null
+                    successMessage = "✓ נשמר ב$locationHint · תיקיית האפליקציה · ${files.size} קבצים"
                 )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isProcessing = false, errorMessage = "שגיאה: ${e.message}")

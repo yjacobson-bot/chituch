@@ -9,8 +9,7 @@ enum class OutputFormat(val label: String, val extension: String, val mimeType: 
 data class ExportSettings(
     val outputFormat: OutputFormat = OutputFormat.ORIGINAL,
     val bitrateKbps: Int = 192,
-    val exportMode: ExportMode = ExportMode.MERGE,
-    val saveToMusicLibrary: Boolean = false
+    val exportMode: ExportMode = ExportMode.MERGE
 )
 
 val BITRATE_OPTIONS = listOf(64, 128, 192, 320)
