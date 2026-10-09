@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.4.1)'
+        required: true
+        default: 'v1.4.1'
 
 jobs:
   build:
@@ -24,17 +30,20 @@ jobs:
 
       - name: Rename APK
         run: |
-          TAG=${GITHUB_REF_NAME}
+          TAG=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
+          echo "TAG=${TAG}" >> $GITHUB_ENV
           mv app/build/outputs/apk/debug/app-debug.apk chituch-${TAG}.apk
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: chituch-${{ github.ref_name }}.apk
+          tag_name: ${{ env.TAG }}
+          name: חיתוכצ'יק ${{ env.TAG }}
+          files: chituch-${{ env.TAG }}.apk
           generate_release_notes: false
           body: |
-            ## חיתוכצ'יק ${{ github.ref_name }}
+            ## חיתוכצ'יק ${{ env.TAG }}
 
-            **להורדה:** לחץ על הקובץ `chituch-${{ github.ref_name }}.apk` למטה.
+            **להורדה:** לחץ על הקובץ `chituch-${{ env.TAG }}.apk` למטה.
 
             דרישות: אנדרואיד 8.0+
