@@ -1,0 +1,63 @@
+name: Build & Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Get tag name
+        id: tag
+        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Rename APK
+        run: |
+          APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+          cp "$APK" "חיתוכצ'יק-${{ steps.tag.outputs.TAG }}.apk"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "חיתוכצ׳יק ${{ steps.tag.outputs.TAG }}"
+          body: |
+            ## חיתוכצ׳יק — עורך אודיו לאנדרואיד
+
+            ### מה חדש בגרסה זו
+            - עריכת אודיו 100% אופליין
+            - מצב שמור קטעים / הסר קטעים
+            - ייצוא AAC או WAV
+            - זום גל + גרירת ידיות
+            - Fade In/Out לכל קטע
+            - ביטול/חזרה (Undo/Redo)
+            - תצוגה מקדימה לקטע בנפרד
+            - שמירה לספריית מוזיקה
+
+            ### התקנה
+            הורד את קובץ ה-APK, אפשר "מקורות לא ידועים" בהגדרות האנדרואיד, ולחץ להתקנה.
+          files: "חיתוכצ'יק-${{ steps.tag.outputs.TAG }}.apk"
+          draft: false
+          prerelease: false

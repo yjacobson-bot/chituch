@@ -1,7 +1,7 @@
 #!/bin/sh
 # Gradle start up script for UN*X
 # Add default JVM options here.
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+DEFAULT_JVM_OPTS='-Xmx2048m -Xms512m'
 
 APP_NAME="Gradle"
 APP_BASE_NAME=`basename "$0"`
