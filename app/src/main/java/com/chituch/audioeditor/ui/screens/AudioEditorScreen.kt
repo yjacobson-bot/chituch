@@ -49,16 +49,9 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // System file picker fallback
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let {
-            try { context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
-            val fileName = context.contentResolver.query(it, null, null, null, null)?.use { c ->
-                val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                c.moveToFirst(); if (ni >= 0) c.getString(ni) else "audio"
-            } ?: "audio"
-            val path = getRealPath(context, it) ?: copyToCache(context, it, fileName)?.absolutePath ?: ""
-            vm.loadAudio(it, fileName, path)
-        }
+        uri?.let { loadUri(context, it, vm) }
     }
 
     LaunchedEffect(state.errorMessage) { state.errorMessage?.let { snackbarHostState.showSnackbar(it); vm.clearMessages() } }
@@ -77,9 +70,8 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.ContentCut, null, tint = Color.White, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("חיתוך שמע", style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("חיתוכצ'יק", style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold)
                     }
-                    // Undo / Redo
                     if (state.audioUri != null) {
                         Row {
                             IconButton(onClick = vm::undo, enabled = state.canUndo) {
@@ -98,31 +90,50 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                 // ── File picker ───────────────────────────────────────────────────
                 Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(2.dp)) {
                     if (state.audioUri == null) {
+                        // Empty state — big tap target to open in-app browser
                         Column(
-                            modifier = Modifier.fillMaxWidth().clickable { filePicker.launch(arrayOf("audio/*")) }.padding(32.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { vm.openAudioBrowser() }.padding(32.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(Icons.Default.AudioFile, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.height(12.dp))
-                            Text("לחץ לבחירת קובץ שמע", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                            Text("MP3, AAC, FLAC, WAV ועוד", style = MaterialTheme.typography.bodySmall, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
+                            Box(
+                                modifier = Modifier.size(80.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.LibraryMusic, null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Text("בחר שיר", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("לחץ לפתיחת ספריית השירים", style = MaterialTheme.typography.bodySmall, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
+                            Spacer(Modifier.height(16.dp))
+                            // Secondary: system file picker
+                            OutlinedButton(onClick = { filePicker.launch(arrayOf("audio/*")) }, modifier = Modifier.fillMaxWidth(0.7f)) {
+                                Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("דפדפן קבצים", fontSize = 13.sp)
+                            }
+                            Text("MP3 · AAC · FLAC · WAV ועוד", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(top = 12.dp))
                         }
                     } else {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Default.AudioFile, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                }
+                                Spacer(Modifier.width(10.dp))
                                 Column {
                                     Text(state.audioFileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                     Text("משך: ${formatTime(state.durationMs)}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                                 }
                             }
-                            TextButton(onClick = { filePicker.launch(arrayOf("audio/*")) }) {
-                                Icon(Icons.Default.FileOpen, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("החלף")
+                            TextButton(onClick = { vm.openAudioBrowser() }) {
+                                Icon(Icons.Default.SwapHoriz, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("החלף")
                             }
                         }
                     }
@@ -135,8 +146,9 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                         // ── Waveform + controls ───────────────────────────────────
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(2.dp)) {
                             Column {
+                                // Taller waveform (200dp)
                                 if (state.isLoadingWaveform) {
-                                    Box(modifier = Modifier.fillMaxWidth().height(130.dp).background(Color(0xFF1A1A2E)), contentAlignment = Alignment.Center) {
+                                    Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(Color(0xFF1A1A2E)), contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(color = Color(0xFF7C4DFF))
                                     }
                                 } else {
@@ -153,11 +165,35 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                         onSegmentEndChanged = { id, ms, dragging -> vm.updateSegmentEnd(id, ms, !dragging) },
                                         onZoomChanged = vm::setWaveformZoom,
                                         onScrollChanged = vm::setWaveformScroll,
-                                        modifier = Modifier.fillMaxWidth().height(130.dp).clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                                        modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                                     )
                                 }
 
-                                // Zoom controls + time display
+                                // ── Quick time inputs directly below waveform ─────
+                                val activePair = state.segmentPairs.find { it.id == state.activeSegmentId }
+                                if (activePair != null && !state.isLoadingWaveform) {
+                                    val activeColor = segmentColors[state.segmentPairs.indexOfFirst { it.id == state.activeSegmentId }.coerceAtLeast(0) % segmentColors.size]
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().background(Color(0xFF1E1E32)).padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Colored dot
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(activeColor))
+                                        Spacer(Modifier.width(6.dp))
+                                        SegmentTimeInputRow(
+                                            label = "",
+                                            segmentColor = activeColor,
+                                            startMs = activePair.startMs,
+                                            endMs = activePair.endMs,
+                                            durationMs = state.durationMs,
+                                            onStartChanged = { ms -> vm.updateSegmentStart(activePair.id, ms, true) },
+                                            onEndChanged = { ms -> vm.updateSegmentEnd(activePair.id, ms, true) },
+                                            compact = true
+                                        )
+                                    }
+                                }
+
+                                // Zoom controls
                                 Row(
                                     modifier = Modifier.fillMaxWidth().background(Color(0xFF1A1A2E)).padding(horizontal = 12.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -173,8 +209,10 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                             Icon(Icons.Default.ZoomIn, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(16.dp))
                                         }
                                     }
-                                    Text(formatTime((state.waveformScrollMs + state.durationMs / state.waveformZoom).toLong().coerceAtMost(state.durationMs)),
-                                        color = Color(0xFF90A4AE), style = MaterialTheme.typography.bodySmall, fontSize = 10.sp)
+                                    Text(
+                                        formatTime((state.waveformScrollMs + state.durationMs / state.waveformZoom).toLong().coerceAtMost(state.durationMs)),
+                                        color = Color(0xFF90A4AE), style = MaterialTheme.typography.bodySmall, fontSize = 10.sp
+                                    )
                                 }
 
                                 // Player controls
@@ -185,10 +223,10 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                 ) {
                                     Text(formatTime(state.currentPositionMs), color = Color.White, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                                     Box(
-                                        modifier = Modifier.size(44.dp).clip(CircleShape).background(Color(0xFF7C4DFF)).clickable { vm.togglePlayPause() },
+                                        modifier = Modifier.size(48.dp).clip(CircleShape).background(Color(0xFF7C4DFF)).clickable { vm.togglePlayPause() },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                                        Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(26.dp))
                                     }
                                     Text(formatTime(state.durationMs), color = Color(0xFF90A4AE), style = MaterialTheme.typography.bodySmall)
                                 }
@@ -270,7 +308,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                                     Text(formatTime(pair.endMs - pair.startMs), style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
                                                 }
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    // Preview button
                                                     IconButton(onClick = { vm.previewSegment(pair.id) }, modifier = Modifier.size(28.dp)) {
                                                         Icon(Icons.Default.PlayCircle, "נגן קטע", tint = color, modifier = Modifier.size(20.dp))
                                                     }
@@ -292,7 +329,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                                 onEndChanged = { ms -> vm.updateSegmentEnd(pair.id, ms, true) }
                                             )
 
-                                            // Fade In / Out sliders
                                             Spacer(Modifier.height(10.dp))
                                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                                 FadeSlider("Fade In", pair.fadeInMs, color, Modifier.weight(1f)) { vm.updateSegmentFadeIn(pair.id, it) }
@@ -366,6 +402,19 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                 onDismiss = vm::hideExportDialog
             )
         }
+
+        // ── In-app audio browser ──────────────────────────────────────────────────
+        if (state.showAudioBrowser) {
+            AudioBrowserSheet(
+                onDismiss = vm::closeAudioBrowser,
+                onFileSelected = { uri, displayName, filePath ->
+                    try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
+                    val resolvedPath = filePath.ifEmpty { getRealPath(context, uri) ?: copyToCache(context, uri, displayName)?.absolutePath ?: "" }
+                    vm.loadAudio(uri, displayName, resolvedPath)
+                    vm.closeAudioBrowser()
+                }
+            )
+        }
     }
 }
 
@@ -383,8 +432,6 @@ private fun ExportDialog(
         title = { Text("הגדרות ייצוא") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-                // Export mode
                 Text("אופן ייצוא", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ExportModeChip("קובץ אחד", settings.exportMode == ExportMode.MERGE, Modifier.weight(1f)) {
@@ -397,7 +444,6 @@ private fun ExportDialog(
 
                 HorizontalDivider()
 
-                // Format
                 Text("פורמט", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutputFormat.entries.forEach { fmt ->
@@ -407,7 +453,6 @@ private fun ExportDialog(
                     }
                 }
 
-                // Bitrate (AAC only)
                 if (settings.outputFormat == OutputFormat.AAC_M4A) {
                     Text("איכות (kbps)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -421,7 +466,6 @@ private fun ExportDialog(
 
                 HorizontalDivider()
 
-                // Save to music library
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable { onSettingsChanged(settings.copy(saveToMusicLibrary = !settings.saveToMusicLibrary)) },
                     verticalAlignment = Alignment.CenterVertically,
@@ -497,6 +541,16 @@ private fun FadeSlider(label: String, valueMs: Long, color: Color, modifier: Mod
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────────
+
+private fun loadUri(context: android.content.Context, uri: Uri, vm: AudioEditorViewModel) {
+    try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
+    val fileName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+        val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+        c.moveToFirst(); if (ni >= 0) c.getString(ni) else "audio"
+    } ?: "audio"
+    val path = getRealPath(context, uri) ?: copyToCache(context, uri, fileName)?.absolutePath ?: ""
+    vm.loadAudio(uri, fileName, path)
+}
 
 private fun getRealPath(context: android.content.Context, uri: Uri): String? = try {
     if (uri.scheme == "file") uri.path

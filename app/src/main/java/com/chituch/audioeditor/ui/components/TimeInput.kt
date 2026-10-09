@@ -68,7 +68,8 @@ fun SegmentTimeInputRow(
     durationMs: Long,
     onStartChanged: (Long) -> Unit,
     onEndChanged: (Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val focusManager = LocalFocusManager.current
     var startText by remember { mutableStateOf(formatTime(startMs)) }
@@ -79,34 +80,50 @@ fun SegmentTimeInputRow(
 
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(modifier = Modifier.weight(1f)) {
-            Text("זמן התחלה", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+            if (!compact) Text("זמן התחלה", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
             OutlinedTextField(
                 value = startText, onValueChange = { startText = it },
                 singleLine = true,
+                placeholder = if (compact) ({ Text("התחלה", fontSize = 11.sp, color = segmentColor.copy(alpha = 0.6f)) }) else null,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     focusManager.clearFocus()
                     parseTimeToMs(startText)?.let { onStartChanged(it.coerceIn(0L, durationMs)) }
                         ?: run { startText = formatTime(startMs) }
                 }),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = segmentColor, unfocusedBorderColor = segmentColor.copy(alpha = 0.5f)),
-                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = segmentColor,
+                    unfocusedBorderColor = segmentColor.copy(alpha = 0.5f),
+                    focusedTextColor = if (compact) segmentColor else androidx.compose.ui.graphics.Color.Unspecified,
+                    unfocusedTextColor = if (compact) segmentColor.copy(alpha = 0.9f) else androidx.compose.ui.graphics.Color.Unspecified,
+                    focusedContainerColor = if (compact) segmentColor.copy(alpha = 0.08f) else androidx.compose.ui.graphics.Color.Unspecified,
+                    unfocusedContainerColor = if (compact) segmentColor.copy(alpha = 0.05f) else androidx.compose.ui.graphics.Color.Unspecified
+                ),
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = if (compact) 12.sp else 13.sp),
                 modifier = Modifier.fillMaxWidth()
             )
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text("זמן סיום", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+            if (!compact) Text("זמן סיום", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
             OutlinedTextField(
                 value = endText, onValueChange = { endText = it },
                 singleLine = true,
+                placeholder = if (compact) ({ Text("סיום", fontSize = 11.sp, color = segmentColor.copy(alpha = 0.6f)) }) else null,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     focusManager.clearFocus()
                     parseTimeToMs(endText)?.let { onEndChanged(it.coerceIn(0L, durationMs)) }
                         ?: run { endText = formatTime(endMs) }
                 }),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = segmentColor, unfocusedBorderColor = segmentColor.copy(alpha = 0.5f)),
-                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = segmentColor,
+                    unfocusedBorderColor = segmentColor.copy(alpha = 0.5f),
+                    focusedTextColor = if (compact) segmentColor else androidx.compose.ui.graphics.Color.Unspecified,
+                    unfocusedTextColor = if (compact) segmentColor.copy(alpha = 0.9f) else androidx.compose.ui.graphics.Color.Unspecified,
+                    focusedContainerColor = if (compact) segmentColor.copy(alpha = 0.08f) else androidx.compose.ui.graphics.Color.Unspecified,
+                    unfocusedContainerColor = if (compact) segmentColor.copy(alpha = 0.05f) else androidx.compose.ui.graphics.Color.Unspecified
+                ),
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = if (compact) 12.sp else 13.sp),
                 modifier = Modifier.fillMaxWidth()
             )
         }
