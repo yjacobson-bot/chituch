@@ -31,6 +31,7 @@ data class AudioEditorState(
     val audioUri: Uri? = null,
     val audioFileName: String = "",
     val audioPath: String = "",
+    val inputMimeType: String = "",
     val durationMs: Long = 0L,
     val currentPositionMs: Long = 0L,
     val isPlaying: Boolean = false,
@@ -86,8 +87,18 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     fun loadAudio(uri: Uri, fileName: String, filePath: String) {
         viewModelScope.launch {
             history.clear(); historyIndex = -1
+            val detectedMime = when {
+                filePath.endsWith(".wav", ignoreCase = true) -> "audio/wav"
+                filePath.endsWith(".m4a", ignoreCase = true) || filePath.endsWith(".aac", ignoreCase = true) -> "audio/mp4"
+                filePath.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
+                filePath.endsWith(".ogg", ignoreCase = true) -> "audio/ogg"
+                filePath.endsWith(".flac", ignoreCase = true) -> "audio/flac"
+                filePath.endsWith(".opus", ignoreCase = true) -> "audio/opus"
+                else -> ""
+            }
             _state.value = _state.value.copy(
                 audioUri = uri, audioFileName = fileName, audioPath = filePath,
+                inputMimeType = detectedMime,
                 isLoadingWaveform = true, segmentPairs = listOf(SegmentPair(0, 0L, 0L)),
                 exportedFiles = emptyList(), errorMessage = null,
                 waveformZoom = 1f, waveformScrollMs = 0L,
@@ -268,7 +279,8 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
                     editMode = cur.editMode,
                     durationMs = cur.durationMs,
                     settings = cur.exportSettings,
-                    outputDir = outputDir
+                    outputDir = outputDir,
+                    inputMimeType = cur.inputMimeType
                 )
                 if (files.isEmpty()) {
                     _state.value = _state.value.copy(isProcessing = false, errorMessage = "שגיאה בעיבוד הקובץ")
@@ -276,8 +288,13 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
                 }
 
                 val savedUris = if (cur.exportSettings.saveToMusicLibrary) {
+                    val saveMime = when {
+                        cur.exportSettings.outputFormat != OutputFormat.ORIGINAL -> cur.exportSettings.outputFormat.mimeType
+                        cur.inputMimeType.contains("wav") -> "audio/wav"
+                        else -> "audio/mp4"
+                    }
                     files.mapNotNull { f ->
-                        MediaStoreSaver.saveToMusicLibrary(context, f, cur.exportSettings.outputFormat.mimeType)
+                        MediaStoreSaver.saveToMusicLibrary(context, f, saveMime)
                     }
                 } else emptyList()
 

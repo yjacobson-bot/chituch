@@ -30,7 +30,8 @@ object AudioProcessor {
         editMode: EditMode,
         durationMs: Long,
         settings: ExportSettings,
-        outputDir: File
+        outputDir: File,
+        inputMimeType: String = ""
     ): List<File> = withContext(Dispatchers.IO) {
 
         val sortedSegments = segments.filter { it.isValid() }.sortedBy { it.startMs }
@@ -40,31 +41,36 @@ object AudioProcessor {
         }
         if (keepSegments.isEmpty()) return@withContext emptyList()
 
-        val ext = settings.outputFormat.extension
+        val (effectiveFormat, outputExt) = if (settings.outputFormat == OutputFormat.ORIGINAL) {
+            resolveEffectiveFormat(inputPath, inputMimeType)
+        } else {
+            Pair(settings.outputFormat, settings.outputFormat.extension)
+        }
+        val effectiveSettings = settings.copy(outputFormat = effectiveFormat)
         val exportSeparate = settings.exportMode == com.chituch.audioeditor.model.ExportMode.SEPARATE
 
         if (exportSeparate) {
             keepSegments.mapIndexed { i, seg ->
-                val out = File(outputDir, "segment_${i + 1}.$ext")
-                val ok = trimSegment(inputPath, SegmentWithFade(seg.startMs, seg.endMs, seg.fadeInMs, seg.fadeOutMs), settings, out)
+                val out = File(outputDir, "segment_${i + 1}.$outputExt")
+                val ok = trimSegment(inputPath, SegmentWithFade(seg.startMs, seg.endMs, seg.fadeInMs, seg.fadeOutMs), effectiveSettings, out)
                 if (ok) out else null
             }.filterNotNull()
         } else {
             if (keepSegments.size == 1) {
                 val seg = keepSegments[0]
-                val out = File(outputDir, "output.$ext")
-                val ok = trimSegment(inputPath, SegmentWithFade(seg.startMs, seg.endMs, seg.fadeInMs, seg.fadeOutMs), settings, out)
+                val out = File(outputDir, "output.$outputExt")
+                val ok = trimSegment(inputPath, SegmentWithFade(seg.startMs, seg.endMs, seg.fadeInMs, seg.fadeOutMs), effectiveSettings, out)
                 if (ok) listOf(out) else emptyList()
             } else {
                 val temps = keepSegments.mapIndexed { i, seg ->
-                    val tmp = File(outputDir, "tmp_$i.$ext")
-                    trimSegment(inputPath, SegmentWithFade(seg.startMs, seg.endMs, seg.fadeInMs, seg.fadeOutMs), settings, tmp)
+                    val tmp = File(outputDir, "tmp_$i.$outputExt")
+                    trimSegment(inputPath, SegmentWithFade(seg.startMs, seg.endMs, seg.fadeInMs, seg.fadeOutMs), effectiveSettings, tmp)
                     tmp
                 }
-                val out = File(outputDir, "output.$ext")
-                val ok = when (settings.outputFormat) {
+                val out = File(outputDir, "output.$outputExt")
+                val ok = when (effectiveFormat) {
                     OutputFormat.WAV -> concatWav(temps, out)
-                    OutputFormat.AAC_M4A -> concatM4a(temps, out)
+                    OutputFormat.AAC_M4A, OutputFormat.ORIGINAL -> concatM4a(temps, out)
                 }
                 temps.forEach { it.delete() }
                 if (ok) listOf(out) else emptyList()
@@ -72,11 +78,29 @@ object AudioProcessor {
         }
     }
 
+    private fun resolveEffectiveFormat(inputPath: String, inputMimeType: String): Pair<OutputFormat, String> {
+        val mime = inputMimeType.ifEmpty {
+            try {
+                val ex = MediaExtractor()
+                ex.setDataSource(inputPath)
+                val m = (0 until ex.trackCount)
+                    .mapNotNull { ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME) }
+                    .firstOrNull { it.startsWith("audio/") } ?: ""
+                ex.release()
+                m
+            } catch (_: Exception) { "" }
+        }
+        return if (mime == "audio/raw" || mime == "audio/wav" || inputPath.endsWith(".wav", ignoreCase = true))
+            Pair(OutputFormat.WAV, "wav")
+        else
+            Pair(OutputFormat.AAC_M4A, "m4a")
+    }
+
     private fun trimSegment(inputPath: String, seg: SegmentWithFade, settings: ExportSettings, out: File): Boolean {
         val needsFade = seg.fadeInMs > 0 || seg.fadeOutMs > 0
         return when (settings.outputFormat) {
             OutputFormat.WAV -> trimToWav(inputPath, seg, out)
-            OutputFormat.AAC_M4A -> {
+            OutputFormat.AAC_M4A, OutputFormat.ORIGINAL -> {
                 if (!needsFade && tryDirectCopy(inputPath, seg.startMs, seg.endMs, out)) true
                 else reencodeToAac(inputPath, seg, settings.bitrateKbps * 1000, out)
             }
