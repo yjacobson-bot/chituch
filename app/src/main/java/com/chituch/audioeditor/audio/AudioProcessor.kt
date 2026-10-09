@@ -90,18 +90,31 @@ object AudioProcessor {
                 m
             } catch (_: Exception) { "" }
         }
-        return if (mime == "audio/raw" || mime == "audio/wav" || inputPath.endsWith(".wav", ignoreCase = true))
-            Pair(OutputFormat.WAV, "wav")
-        else
-            Pair(OutputFormat.AAC_M4A, "m4a")
+        return when {
+            mime == "audio/raw" || mime == "audio/wav" || inputPath.endsWith(".wav", ignoreCase = true) ->
+                Pair(OutputFormat.WAV, "wav")
+            mime.contains("mp4a") || mime.contains("aac") ||
+                inputPath.endsWith(".m4a", ignoreCase = true) || inputPath.endsWith(".aac", ignoreCase = true) ->
+                Pair(OutputFormat.AAC_M4A, "m4a")
+            else -> {
+                // Preserve original extension for formats like MP3, OGG, FLAC, OPUS, etc.
+                val origExt = inputPath.substringAfterLast('.', "").lowercase().ifEmpty { "mp3" }
+                Pair(OutputFormat.ORIGINAL, origExt)
+            }
+        }
     }
 
     private fun trimSegment(inputPath: String, seg: SegmentWithFade, settings: ExportSettings, out: File): Boolean {
         val needsFade = seg.fadeInMs > 0 || seg.fadeOutMs > 0
         return when (settings.outputFormat) {
             OutputFormat.WAV -> trimToWav(inputPath, seg, out)
-            OutputFormat.AAC_M4A, OutputFormat.ORIGINAL -> {
+            OutputFormat.AAC_M4A -> {
                 if (!needsFade && tryDirectCopy(inputPath, seg.startMs, seg.endMs, out)) true
+                else reencodeToAac(inputPath, seg, settings.bitrateKbps * 1000, out)
+            }
+            OutputFormat.ORIGINAL -> {
+                // Try bitstream copy preserving original codec; fall back to AAC re-encode
+                if (!needsFade && tryDirectCopyAny(inputPath, seg.startMs, seg.endMs, out)) true
                 else reencodeToAac(inputPath, seg, settings.bitrateKbps * 1000, out)
             }
         }
@@ -120,6 +133,48 @@ object AudioProcessor {
             val format = extractor.getTrackFormat(track)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return false
             if (!mime.contains("mp4a") && !mime.contains("aac")) return false
+
+            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val muxTrack = muxer.addTrack(format)
+            muxer.start()
+
+            extractor.seekTo(startMs * 1000L, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            val buf = ByteBuffer.allocate(256 * 1024)
+            val info = MediaCodec.BufferInfo()
+            var firstPts = Long.MIN_VALUE
+
+            while (true) {
+                val size = extractor.readSampleData(buf, 0)
+                if (size < 0) break
+                val pts = extractor.sampleTime
+                if (pts > endMs * 1000L) break
+                if (firstPts == Long.MIN_VALUE) firstPts = pts
+                info.offset = 0; info.size = size
+                info.presentationTimeUs = pts - firstPts
+                info.flags = extractor.sampleFlags
+                muxer.writeSampleData(muxTrack, buf, info)
+                extractor.advance()
+            }
+            muxer.stop(); true
+        } catch (_: Exception) {
+            outputFile.delete(); false
+        } finally {
+            extractor.release()
+            try { muxer?.release() } catch (_: Exception) {}
+        }
+    }
+
+    // ── Direct copy for non-AAC codecs (MP3, OGG, etc.) into MPEG-4 container ──
+
+    private fun tryDirectCopyAny(inputPath: String, startMs: Long, endMs: Long, outputFile: File): Boolean {
+        val extractor = MediaExtractor()
+        var muxer: MediaMuxer? = null
+        return try {
+            extractor.setDataSource(inputPath)
+            val track = findAudioTrack(extractor)
+            if (track < 0) return false
+            extractor.selectTrack(track)
+            val format = extractor.getTrackFormat(track)
 
             muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val muxTrack = muxer.addTrack(format)
