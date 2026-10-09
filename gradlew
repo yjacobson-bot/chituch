@@ -1,10 +1,26 @@
 #!/bin/sh
 # Gradle start up script for UN*X
-# Add default JVM options here.
+
 DEFAULT_JVM_OPTS='-Xmx2048m -Xms512m'
 
 APP_NAME="Gradle"
 APP_BASE_NAME=`basename "$0"`
+
+# Determine APP_HOME (directory where this script lives)
+PRG="$0"
+while [ -h "$PRG" ] ; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`"/""$link"
+  fi
+done
+SAVED="`pwd`"
+cd "`dirname \"$PRG\"`/" > /dev/null
+APP_HOME="`pwd -P`"
+cd "$SAVED" > /dev/null
 
 # Use the maximum available, or set MAX_FD != -1 to use that value.
 MAX_FD="maximum"

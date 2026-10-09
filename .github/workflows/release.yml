@@ -27,19 +27,18 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Accept Android SDK licenses
-        run: yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses || true
-
-      - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Set Android SDK path
+        run: |
+          ANDROID_SDK_PATH="/usr/local/lib/android/sdk"
+          echo "ANDROID_HOME=${ANDROID_SDK_PATH}" >> $GITHUB_ENV
+          yes | ${ANDROID_SDK_PATH}/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          echo "sdk.dir=${ANDROID_SDK_PATH}" > local.properties
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Get version name
         id: tag
@@ -64,19 +63,25 @@ jobs:
             ## חיתוכצ'יק — עורך אודיו לאנדרואיד
 
             ### פיצ'רים
-            - עריכת אודיו **100% אופליין**
-            - מצב שמור / הסר קטעים
-            - ייצוא AAC או WAV | Fade In/Out | Undo/Redo
-            - זום גל 30× | תצוגה מקדימה | מהירות 0.5×–2×
+            - עריכת אודיו **100% אופליין** — ללא אינטרנט
+            - מצב שמור קטעים / הסר קטעים
+            - עד 4 זוגות ידיות בצבעים שונים
+            - ייצוא AAC (M4A) או WAV
+            - Fade In/Out לכל קטע (0–5 שניות)
+            - זום גל עד 30× + גלילה
+            - ביטול/חזרה (Undo/Redo)
+            - תצוגה מקדימית לקטע בנפרד
+            - מהירות נגינה 0.5×–2×
+            - שמירה לספריית מוזיקה
 
             ### תמיכה
             - Android 8.0+ (API 26+)
-            - MP3, AAC, FLAC, OGG, WAV, OPUS ועוד
+            - כל סוגי השמע: MP3, AAC, FLAC, OGG, WAV, OPUS ועוד
 
             ### התקנה
             1. הורד את קובץ ה-APK
-            2. אפשר "מקורות לא ידועים" בהגדרות
-            3. לחץ להתקנה
+            2. אפשר "מקורות לא ידועים" בהגדרות האנדרואיד
+            3. לחץ על הקובץ להתקנה
           files: "chituchik-${{ steps.tag.outputs.TAG }}.apk"
           draft: false
           prerelease: false
