@@ -2,8 +2,6 @@ package com.chituch.audioeditor.ui.screens
 
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -48,11 +46,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // System file picker fallback
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let { loadUri(context, it, vm) }
-    }
 
     LaunchedEffect(state.errorMessage) { state.errorMessage?.let { snackbarHostState.showSnackbar(it); vm.clearMessages() } }
     LaunchedEffect(state.successMessage) { state.successMessage?.let { snackbarHostState.showSnackbar(it); vm.clearMessages() } }
@@ -104,14 +97,7 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                             Spacer(Modifier.height(16.dp))
                             Text("בחר שיר", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             Text("לחץ לפתיחת ספריית השירים", style = MaterialTheme.typography.bodySmall, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
-                            Spacer(Modifier.height(16.dp))
-                            // Secondary: system file picker
-                            OutlinedButton(onClick = { filePicker.launch(arrayOf("audio/*")) }, modifier = Modifier.fillMaxWidth(0.7f)) {
-                                Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("דפדפן קבצים", fontSize = 13.sp)
-                            }
-                            Text("MP3 · AAC · FLAC · WAV ועוד", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(top = 12.dp))
+                            Text("MP3 · AAC · FLAC · WAV ועוד", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(top = 16.dp))
                         }
                     } else {
                         Row(
@@ -541,16 +527,6 @@ private fun FadeSlider(label: String, valueMs: Long, color: Color, modifier: Mod
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────────
-
-private fun loadUri(context: android.content.Context, uri: Uri, vm: AudioEditorViewModel) {
-    try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
-    val fileName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-        val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-        c.moveToFirst(); if (ni >= 0) c.getString(ni) else "audio"
-    } ?: "audio"
-    val path = getRealPath(context, uri) ?: copyToCache(context, uri, fileName)?.absolutePath ?: ""
-    vm.loadAudio(uri, fileName, path)
-}
 
 private fun getRealPath(context: android.content.Context, uri: Uri): String? = try {
     if (uri.scheme == "file") uri.path
