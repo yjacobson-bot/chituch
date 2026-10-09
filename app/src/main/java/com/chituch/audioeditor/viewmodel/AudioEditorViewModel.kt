@@ -6,9 +6,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.chituch.audioeditor.audio.AudioPlayer
 import com.chituch.audioeditor.audio.AudioProcessor
+import com.chituch.audioeditor.audio.MediaStoreSaver
 import com.chituch.audioeditor.audio.WaveformExtractor
 import com.chituch.audioeditor.model.EditMode
+import com.chituch.audioeditor.model.ExportSettings
 import com.chituch.audioeditor.model.ExportMode
+import com.chituch.audioeditor.model.OutputFormat
 import com.chituch.audioeditor.model.Segment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +22,9 @@ import java.io.File
 data class SegmentPair(
     val id: Int,
     val startMs: Long,
-    val endMs: Long
+    val endMs: Long,
+    val fadeInMs: Long = 0L,
+    val fadeOutMs: Long = 0L
 )
 
 data class AudioEditorState(
@@ -29,16 +34,22 @@ data class AudioEditorState(
     val durationMs: Long = 0L,
     val currentPositionMs: Long = 0L,
     val isPlaying: Boolean = false,
+    val playbackSpeed: Float = 1f,
     val waveformData: FloatArray = FloatArray(0),
     val isLoadingWaveform: Boolean = false,
     val editMode: EditMode = EditMode.KEEP,
     val segmentPairs: List<SegmentPair> = listOf(SegmentPair(0, 0L, 0L)),
     val activeSegmentId: Int = 0,
-    val exportMode: ExportMode = ExportMode.MERGE,
+    val exportSettings: ExportSettings = ExportSettings(),
     val isProcessing: Boolean = false,
     val exportedFiles: List<File> = emptyList(),
     val errorMessage: String? = null,
-    val showExportDialog: Boolean = false
+    val successMessage: String? = null,
+    val showExportDialog: Boolean = false,
+    val waveformZoom: Float = 1f,
+    val waveformScrollMs: Long = 0L,
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false
 )
 
 class AudioEditorViewModel(application: Application) : AndroidViewModel(application) {
@@ -46,6 +57,11 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     val state: StateFlow<AudioEditorState> = _state.asStateFlow()
 
     private val audioPlayer = AudioPlayer(application)
+
+    // Undo/redo history — stores snapshots of segmentPairs
+    private val history = ArrayDeque<List<SegmentPair>>()
+    private var historyIndex = -1
+    private var lastHistoryPushMs = 0L
 
     init {
         audioPlayer.setOnProgressChanged { pos ->
@@ -59,32 +75,26 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
                 durationMs = dur,
                 segmentPairs = listOf(SegmentPair(0, 0L, dur))
             )
+            pushHistory(listOf(SegmentPair(0, 0L, dur)))
         }
     }
 
     fun loadAudio(uri: Uri, fileName: String, filePath: String) {
         viewModelScope.launch {
+            history.clear(); historyIndex = -1
             _state.value = _state.value.copy(
-                audioUri = uri,
-                audioFileName = fileName,
-                audioPath = filePath,
-                isLoadingWaveform = true,
-                segmentPairs = listOf(SegmentPair(0, 0L, 0L)),
-                exportedFiles = emptyList(),
-                errorMessage = null
+                audioUri = uri, audioFileName = fileName, audioPath = filePath,
+                isLoadingWaveform = true, segmentPairs = listOf(SegmentPair(0, 0L, 0L)),
+                exportedFiles = emptyList(), errorMessage = null,
+                waveformZoom = 1f, waveformScrollMs = 0L,
+                canUndo = false, canRedo = false
             )
             try {
                 audioPlayer.loadAudio(uri)
                 val waveform = WaveformExtractor.extract(getApplication(), uri, 500)
-                _state.value = _state.value.copy(
-                    waveformData = waveform,
-                    isLoadingWaveform = false
-                )
+                _state.value = _state.value.copy(waveformData = waveform, isLoadingWaveform = false)
             } catch (e: Exception) {
-                _state.value = _state.value.copy(
-                    isLoadingWaveform = false,
-                    errorMessage = "שגיאה בטעינת הקובץ: ${e.message}"
-                )
+                _state.value = _state.value.copy(isLoadingWaveform = false, errorMessage = "שגיאה בטעינת הקובץ: ${e.message}")
             }
         }
     }
@@ -99,104 +109,185 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun previewSegment(id: Int) {
+        val pair = _state.value.segmentPairs.find { it.id == id } ?: return
+        audioPlayer.playSegment(pair.startMs, pair.endMs)
+        _state.value = _state.value.copy(isPlaying = true)
+    }
+
     fun seekTo(positionMs: Long) {
         audioPlayer.seekTo(positionMs)
         _state.value = _state.value.copy(currentPositionMs = positionMs)
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        audioPlayer.setSpeed(speed)
+        _state.value = _state.value.copy(playbackSpeed = speed)
     }
 
     fun setEditMode(mode: EditMode) {
         _state.value = _state.value.copy(editMode = mode)
     }
 
-    fun updateSegmentStart(id: Int, startMs: Long) {
+    fun updateSegmentStart(id: Int, startMs: Long, commit: Boolean = true) {
         val pairs = _state.value.segmentPairs.map { p ->
-            if (p.id == id) p.copy(startMs = startMs.coerceIn(0L, p.endMs - 1000L)) else p
+            if (p.id == id) p.copy(startMs = startMs.coerceIn(0L, p.endMs - 500L)) else p
         }
         _state.value = _state.value.copy(segmentPairs = pairs)
+        if (commit) pushHistory(pairs)
     }
 
-    fun updateSegmentEnd(id: Int, endMs: Long) {
+    fun updateSegmentEnd(id: Int, endMs: Long, commit: Boolean = true) {
         val pairs = _state.value.segmentPairs.map { p ->
-            if (p.id == id) p.copy(endMs = endMs.coerceIn(p.startMs + 1000L, _state.value.durationMs)) else p
+            if (p.id == id) p.copy(endMs = endMs.coerceIn(p.startMs + 500L, _state.value.durationMs)) else p
         }
         _state.value = _state.value.copy(segmentPairs = pairs)
+        if (commit) pushHistory(pairs)
+    }
+
+    fun updateSegmentFadeIn(id: Int, fadeMs: Long) {
+        val pairs = _state.value.segmentPairs.map { p ->
+            if (p.id == id) p.copy(fadeInMs = fadeMs.coerceIn(0L, 10_000L)) else p
+        }
+        _state.value = _state.value.copy(segmentPairs = pairs)
+        pushHistory(pairs)
+    }
+
+    fun updateSegmentFadeOut(id: Int, fadeMs: Long) {
+        val pairs = _state.value.segmentPairs.map { p ->
+            if (p.id == id) p.copy(fadeOutMs = fadeMs.coerceIn(0L, 10_000L)) else p
+        }
+        _state.value = _state.value.copy(segmentPairs = pairs)
+        pushHistory(pairs)
     }
 
     fun addSegmentPair() {
-        val current = _state.value
-        if (current.durationMs == 0L) return
-        val newId = (current.segmentPairs.maxOfOrNull { it.id } ?: 0) + 1
-        val newPair = SegmentPair(newId, 0L, current.durationMs)
-        _state.value = current.copy(
-            segmentPairs = current.segmentPairs + newPair,
-            activeSegmentId = newId
-        )
+        val cur = _state.value
+        if (cur.durationMs == 0L) return
+        val newId = (cur.segmentPairs.maxOfOrNull { it.id } ?: 0) + 1
+        val newPairs = cur.segmentPairs + SegmentPair(newId, 0L, cur.durationMs)
+        _state.value = cur.copy(segmentPairs = newPairs, activeSegmentId = newId)
+        pushHistory(newPairs)
     }
 
     fun removeSegmentPair(id: Int) {
-        val current = _state.value
-        if (current.segmentPairs.size <= 1) return
-        val newPairs = current.segmentPairs.filter { it.id != id }
-        _state.value = current.copy(
-            segmentPairs = newPairs,
-            activeSegmentId = newPairs.firstOrNull()?.id ?: 0
-        )
+        val cur = _state.value
+        if (cur.segmentPairs.size <= 1) return
+        val newPairs = cur.segmentPairs.filter { it.id != id }
+        _state.value = cur.copy(segmentPairs = newPairs, activeSegmentId = newPairs.firstOrNull()?.id ?: 0)
+        pushHistory(newPairs)
     }
 
     fun setActiveSegment(id: Int) {
         _state.value = _state.value.copy(activeSegmentId = id)
     }
 
-    fun setExportMode(mode: ExportMode) {
-        _state.value = _state.value.copy(exportMode = mode)
+    // ── Waveform zoom ────────────────────────────────────────────────────────────
+
+    fun setWaveformZoom(zoom: Float) {
+        val cur = _state.value
+        val newZoom = zoom.coerceIn(1f, 30f)
+        val maxScroll = (cur.durationMs - cur.durationMs / newZoom).coerceAtLeast(0L)
+        val newScroll = cur.waveformScrollMs.coerceIn(0L, maxScroll)
+        _state.value = cur.copy(waveformZoom = newZoom, waveformScrollMs = newScroll)
     }
 
-    fun showExportDialog() {
-        _state.value = _state.value.copy(showExportDialog = true)
+    fun setWaveformScroll(scrollMs: Long) {
+        val cur = _state.value
+        val maxScroll = (cur.durationMs - cur.durationMs / cur.waveformZoom).coerceAtLeast(0L)
+        _state.value = cur.copy(waveformScrollMs = scrollMs.coerceIn(0L, maxScroll))
     }
 
-    fun hideExportDialog() {
-        _state.value = _state.value.copy(showExportDialog = false)
+    // ── Undo / Redo ──────────────────────────────────────────────────────────────
+
+    private fun pushHistory(pairs: List<SegmentPair>) {
+        val now = System.currentTimeMillis()
+        // Debounce: if same call within 400ms, replace last entry
+        if (now - lastHistoryPushMs < 400 && historyIndex >= 0) {
+            history[historyIndex] = pairs
+            lastHistoryPushMs = now
+            return
+        }
+        while (history.size > historyIndex + 1 && historyIndex >= 0) history.removeLast()
+        history.addLast(pairs)
+        if (history.size > 30) history.removeFirst()
+        historyIndex = history.size - 1
+        lastHistoryPushMs = now
+        _state.value = _state.value.copy(canUndo = historyIndex > 0, canRedo = false)
     }
+
+    fun undo() {
+        if (historyIndex <= 0) return
+        historyIndex--
+        _state.value = _state.value.copy(
+            segmentPairs = history[historyIndex],
+            canUndo = historyIndex > 0,
+            canRedo = true
+        )
+    }
+
+    fun redo() {
+        if (historyIndex >= history.size - 1) return
+        historyIndex++
+        _state.value = _state.value.copy(
+            segmentPairs = history[historyIndex],
+            canUndo = historyIndex > 0,
+            canRedo = historyIndex < history.size - 1
+        )
+    }
+
+    // ── Export settings ──────────────────────────────────────────────────────────
+
+    fun updateExportSettings(settings: ExportSettings) {
+        _state.value = _state.value.copy(exportSettings = settings)
+    }
+
+    fun showExportDialog() { _state.value = _state.value.copy(showExportDialog = true) }
+    fun hideExportDialog() { _state.value = _state.value.copy(showExportDialog = false) }
 
     fun processAndExport() {
-        val current = _state.value
-        if (current.audioPath.isEmpty() || current.durationMs == 0L) return
-
+        val cur = _state.value
+        if (cur.audioPath.isEmpty() || cur.durationMs == 0L) return
         val context = getApplication<Application>()
         val outputDir = File(context.getExternalFilesDir(null), "exports").apply { mkdirs() }
-
-        val segments = current.segmentPairs.mapIndexed { idx, p ->
-            Segment(idx, p.startMs, p.endMs)
-        }
+        val segments = cur.segmentPairs.mapIndexed { i, p -> Segment(i, p.startMs, p.endMs, p.fadeInMs, p.fadeOutMs) }
 
         viewModelScope.launch {
-            _state.value = _state.value.copy(isProcessing = true, showExportDialog = false, errorMessage = null)
+            _state.value = _state.value.copy(isProcessing = true, showExportDialog = false, errorMessage = null, successMessage = null)
             try {
                 val files = AudioProcessor.processAudio(
-                    inputPath = current.audioPath,
+                    inputPath = cur.audioPath,
                     segments = segments,
-                    editMode = current.editMode,
-                    durationMs = current.durationMs,
-                    exportSeparate = current.exportMode == ExportMode.SEPARATE,
+                    editMode = cur.editMode,
+                    durationMs = cur.durationMs,
+                    settings = cur.exportSettings,
                     outputDir = outputDir
                 )
+                if (files.isEmpty()) {
+                    _state.value = _state.value.copy(isProcessing = false, errorMessage = "שגיאה בעיבוד הקובץ")
+                    return@launch
+                }
+
+                val savedUris = if (cur.exportSettings.saveToMusicLibrary) {
+                    files.mapNotNull { f ->
+                        MediaStoreSaver.saveToMusicLibrary(context, f, cur.exportSettings.outputFormat.mimeType)
+                    }
+                } else emptyList()
+
                 _state.value = _state.value.copy(
                     isProcessing = false,
                     exportedFiles = files,
-                    errorMessage = if (files.isEmpty()) "שגיאה בעיבוד הקובץ" else null
+                    successMessage = if (cur.exportSettings.saveToMusicLibrary && savedUris.isNotEmpty())
+                        "נשמר בספריית המוזיקה (${files.size} קבצים)" else null
                 )
             } catch (e: Exception) {
-                _state.value = _state.value.copy(
-                    isProcessing = false,
-                    errorMessage = "שגיאה: ${e.message}"
-                )
+                _state.value = _state.value.copy(isProcessing = false, errorMessage = "שגיאה: ${e.message}")
             }
         }
     }
 
-    fun clearError() {
-        _state.value = _state.value.copy(errorMessage = null)
+    fun clearMessages() {
+        _state.value = _state.value.copy(errorMessage = null, successMessage = null)
     }
 
     fun clearExportedFiles() {
