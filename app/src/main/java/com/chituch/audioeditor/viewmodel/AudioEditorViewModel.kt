@@ -51,7 +51,9 @@ data class AudioEditorState(
     val waveformZoom: Float = 1f,
     val waveformScrollMs: Long = 0L,
     val canUndo: Boolean = false,
-    val canRedo: Boolean = false
+    val canRedo: Boolean = false,
+    val loopingSegmentId: Int? = null,
+    val undoDescription: String? = null
 )
 
 class AudioEditorViewModel(application: Application) : AndroidViewModel(application) {
@@ -59,6 +61,25 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     val state: StateFlow<AudioEditorState> = _state.asStateFlow()
 
     private val audioPlayer = AudioPlayer(application)
+    private val prefs = application.getSharedPreferences("chituch_prefs", android.content.Context.MODE_PRIVATE)
+
+    private fun savePrefs(settings: ExportSettings, speed: Float) {
+        prefs.edit()
+            .putString("output_format", settings.outputFormat.name)
+            .putInt("bitrate", settings.bitrateKbps)
+            .putBoolean("save_to_library", settings.saveToMusicLibrary)
+            .putFloat("speed", speed)
+            .apply()
+    }
+
+    private fun loadPrefs(): Pair<ExportSettings, Float> {
+        val formatName = prefs.getString("output_format", OutputFormat.ORIGINAL.name) ?: OutputFormat.ORIGINAL.name
+        val format = try { OutputFormat.valueOf(formatName) } catch (_: Exception) { OutputFormat.ORIGINAL }
+        val bitrate = prefs.getInt("bitrate", 192)
+        val saveToLib = prefs.getBoolean("save_to_library", false)
+        val speed = prefs.getFloat("speed", 1f)
+        return Pair(ExportSettings(outputFormat = format, bitrateKbps = bitrate, saveToMusicLibrary = saveToLib), speed)
+    }
 
     // Undo/redo history — stores snapshots of segmentPairs
     private val history = ArrayDeque<List<SegmentPair>>()
@@ -66,8 +87,23 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     private var lastHistoryPushMs = 0L
 
     init {
+        val (savedSettings, savedSpeed) = loadPrefs()
+        _state.value = _state.value.copy(exportSettings = savedSettings, playbackSpeed = savedSpeed)
+        audioPlayer.setSpeed(savedSpeed)
+
         audioPlayer.setOnProgressChanged { pos ->
-            _state.value = _state.value.copy(currentPositionMs = pos)
+            val cur = _state.value
+            _state.value = cur.copy(currentPositionMs = pos)
+            // Auto-scroll: if zoomed in and playhead exits visible window, scroll to follow
+            if (cur.waveformZoom > 1f) {
+                val visibleMs = (cur.durationMs / cur.waveformZoom).toLong()
+                val visibleEnd = cur.waveformScrollMs + visibleMs
+                if (pos > visibleEnd || pos < cur.waveformScrollMs) {
+                    val maxScroll = (cur.durationMs - visibleMs).coerceAtLeast(0L)
+                    val newScroll = (pos - (visibleMs * 0.15).toLong()).coerceIn(0L, maxScroll)
+                    _state.value = _state.value.copy(waveformScrollMs = newScroll)
+                }
+            }
         }
         audioPlayer.setOnPlaybackComplete {
             _state.value = _state.value.copy(isPlaying = false)
@@ -126,8 +162,16 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
 
     fun previewSegment(id: Int) {
         val pair = _state.value.segmentPairs.find { it.id == id } ?: return
-        audioPlayer.playSegment(pair.startMs, pair.endMs)
+        val isLoop = _state.value.loopingSegmentId == id
+        audioPlayer.playSegment(pair.startMs, pair.endMs, loop = isLoop)
         _state.value = _state.value.copy(isPlaying = true)
+    }
+
+    fun toggleLoopSegment(id: Int) {
+        val cur = _state.value
+        val newLoopId = if (cur.loopingSegmentId == id) null else id
+        _state.value = cur.copy(loopingSegmentId = newLoopId)
+        audioPlayer.setLooping(newLoopId != null)
     }
 
     fun seekTo(positionMs: Long) {
@@ -138,6 +182,7 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     fun setPlaybackSpeed(speed: Float) {
         audioPlayer.setSpeed(speed)
         _state.value = _state.value.copy(playbackSpeed = speed)
+        savePrefs(_state.value.exportSettings, speed)
     }
 
     fun setEditMode(mode: EditMode) {
@@ -207,6 +252,18 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         _state.value = cur.copy(waveformZoom = newZoom, waveformScrollMs = newScroll)
     }
 
+    fun zoomToSegment(startMs: Long, endMs: Long) {
+        val cur = _state.value
+        if (cur.durationMs == 0L) return
+        val segDuration = (endMs - startMs).coerceAtLeast(1L)
+        // Add 10% padding on each side
+        val paddedStart = (startMs - segDuration * 0.1).toLong().coerceAtLeast(0L)
+        val paddedEnd = (endMs + segDuration * 0.1).toLong().coerceAtMost(cur.durationMs)
+        val paddedDuration = paddedEnd - paddedStart
+        val newZoom = (cur.durationMs.toFloat() / paddedDuration.toFloat()).coerceIn(1f, 30f)
+        _state.value = cur.copy(waveformZoom = newZoom, waveformScrollMs = paddedStart)
+    }
+
     fun setWaveformScroll(scrollMs: Long) {
         val cur = _state.value
         val maxScroll = (cur.durationMs - (cur.durationMs / cur.waveformZoom).toLong()).coerceAtLeast(0L)
@@ -234,20 +291,32 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     fun undo() {
         if (historyIndex <= 0) return
         historyIndex--
+        val pairs = history[historyIndex]
+        val desc = if (pairs.isNotEmpty()) {
+            val p = pairs.first()
+            "חזרת ל: ${formatTime(p.startMs)}–${formatTime(p.endMs)}"
+        } else "בוטל"
         _state.value = _state.value.copy(
-            segmentPairs = history[historyIndex],
+            segmentPairs = pairs,
             canUndo = historyIndex > 0,
-            canRedo = true
+            canRedo = true,
+            successMessage = desc
         )
     }
 
     fun redo() {
         if (historyIndex >= history.size - 1) return
         historyIndex++
+        val pairs = history[historyIndex]
+        val desc = if (pairs.isNotEmpty()) {
+            val p = pairs.first()
+            "חזור ל: ${formatTime(p.startMs)}–${formatTime(p.endMs)}"
+        } else "חזור"
         _state.value = _state.value.copy(
-            segmentPairs = history[historyIndex],
+            segmentPairs = pairs,
             canUndo = historyIndex > 0,
-            canRedo = historyIndex < history.size - 1
+            canRedo = historyIndex < history.size - 1,
+            successMessage = desc
         )
     }
 
@@ -255,6 +324,7 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
 
     fun updateExportSettings(settings: ExportSettings) {
         _state.value = _state.value.copy(exportSettings = settings)
+        savePrefs(settings, _state.value.playbackSpeed)
     }
 
     fun showExportDialog() { _state.value = _state.value.copy(showExportDialog = true) }
@@ -308,6 +378,13 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
                 _state.value = _state.value.copy(isProcessing = false, errorMessage = "שגיאה: ${e.message}")
             }
         }
+    }
+
+    private fun formatTime(ms: Long): String {
+        val totalSec = ms / 1000
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        return "$min:${sec.toString().padStart(2, '0')}"
     }
 
     fun clearMessages() {

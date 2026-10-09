@@ -151,6 +151,7 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                         onSegmentEndChanged = { id, ms, dragging -> vm.updateSegmentEnd(id, ms, !dragging) },
                                         onZoomChanged = vm::setWaveformZoom,
                                         onScrollChanged = vm::setWaveformScroll,
+                                        onZoomToSegment = { startMs, endMs -> vm.zoomToSegment(startMs, endMs) },
                                         modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                                     )
                                 }
@@ -296,6 +297,15 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     IconButton(onClick = { vm.previewSegment(pair.id) }, modifier = Modifier.size(28.dp)) {
                                                         Icon(Icons.Default.PlayCircle, "נגן קטע", tint = color, modifier = Modifier.size(20.dp))
+                                                    }
+                                                    val isLooping = state.loopingSegmentId == pair.id
+                                                    IconButton(onClick = { vm.toggleLoopSegment(pair.id) }, modifier = Modifier.size(28.dp)) {
+                                                        Icon(
+                                                            if (isLooping) Icons.Default.Repeat else Icons.Default.RepeatOne,
+                                                            "לולאה",
+                                                            tint = if (isLooping) color else Color.Gray,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
                                                     }
                                                     if (state.segmentPairs.size > 1) {
                                                         IconButton(onClick = { vm.removeSegmentPair(pair.id) }, modifier = Modifier.size(28.dp)) {

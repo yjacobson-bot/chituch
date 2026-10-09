@@ -21,6 +21,8 @@ class AudioPlayer(private val context: Context) {
     private var onDurationReady: ((Long) -> Unit)? = null
     private val scope = CoroutineScope(Dispatchers.Main)
 
+    private var loopStartMs: Long = -1L
+    private var _isLooping: Boolean = false
     private var _speed: Float = 1f
 
     val duration: Long get() = _duration
@@ -51,14 +53,18 @@ class AudioPlayer(private val context: Context) {
         mediaPlayer?.let { if (!it.isPlaying) { it.start(); startProgressTracking() } }
     }
 
-    fun playSegment(startMs: Long, endMs: Long) {
+    fun playSegment(startMs: Long, endMs: Long, loop: Boolean = false) {
         previewEndMs = endMs
+        loopStartMs = startMs
+        _isLooping = loop
         mediaPlayer?.let {
             it.seekTo(startMs.toInt())
             if (!it.isPlaying) it.start()
             startProgressTracking()
         }
     }
+
+    fun setLooping(loop: Boolean) { _isLooping = loop }
 
     fun pause() {
         mediaPlayer?.let { if (it.isPlaying) { it.pause(); stopProgressTracking() } }
@@ -97,10 +103,14 @@ class AudioPlayer(private val context: Context) {
                 val pos = currentPosition
                 onProgressChanged?.invoke(pos)
                 if (pos >= previewEndMs) {
-                    pause()
-                    previewEndMs = Long.MAX_VALUE
-                    onPlaybackComplete?.invoke()
-                    break
+                    if (_isLooping && loopStartMs >= 0) {
+                        mediaPlayer?.seekTo(loopStartMs.toInt())
+                    } else {
+                        pause()
+                        previewEndMs = Long.MAX_VALUE
+                        onPlaybackComplete?.invoke()
+                        break
+                    }
                 }
                 delay(50)
             }

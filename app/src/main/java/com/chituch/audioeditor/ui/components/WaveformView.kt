@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -37,6 +38,7 @@ fun WaveformView(
     onSegmentEndChanged: (Int, Long, Boolean) -> Unit,
     onZoomChanged: (Float) -> Unit,
     onScrollChanged: (Long) -> Unit,
+    onZoomToSegment: ((startMs: Long, endMs: Long) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0L) return
@@ -89,6 +91,7 @@ fun WaveformView(
                             dragging = best
                         },
                         onDrag = { change, _ ->
+                            change.consume()
                             val d = dragging ?: return@detectDragGestures
                             val ms = xToMs(change.position.x)
                             if (d.isStart) onSegmentStartChanged(d.segId, ms, true)
@@ -107,11 +110,19 @@ fun WaveformView(
                         onDragCancel = { dragging = null }
                     )
                 }
-                .pointerInput(durationMs, scrollOffsetMs, zoomLevel) {
-                    detectTapGestures { offset ->
-                        canvasWidth = size.width.toFloat()
-                        onSeek(xToMs(offset.x))
-                    }
+                .pointerInput(durationMs, scrollOffsetMs, zoomLevel, segmentPairs, activeSegmentId) {
+                    detectTapGestures(
+                        onTap = { offset ->
+                            canvasWidth = size.width.toFloat()
+                            onSeek(xToMs(offset.x))
+                        },
+                        onDoubleTap = { _ ->
+                            val activePair = segmentPairs.find { it.id == activeSegmentId }
+                            if (activePair != null) {
+                                onZoomToSegment?.invoke(activePair.startMs, activePair.endMs)
+                            }
+                        }
+                    )
                 }
         ) {
             canvasWidth = size.width
@@ -148,15 +159,41 @@ fun WaveformView(
                 drawRect(color = color.copy(alpha = 0.18f), topLeft = Offset(sx, 0f), size = Size(w, size.height))
 
                 val strokeW = if (pair.id == activeSegmentId) 4.dp.toPx() else 2.5.dp.toPx()
-                val circleR = if (pair.id == activeSegmentId) 10.dp.toPx() else 7.dp.toPx()
+                val triSize = if (pair.id == activeSegmentId) 14.dp.toPx() else 10.dp.toPx()
 
                 if (pair.startMs in startMs..endMs) {
                     drawLine(color = color, start = Offset(sx, 0f), end = Offset(sx, size.height), strokeWidth = strokeW)
-                    drawCircle(color = color, radius = circleR, center = Offset(sx, centerY))
+                    val topPath = Path().apply {
+                        moveTo(sx - triSize / 2, 0f)
+                        lineTo(sx + triSize / 2, 0f)
+                        lineTo(sx, triSize)
+                        close()
+                    }
+                    drawPath(topPath, color = color)
+                    val botPath = Path().apply {
+                        moveTo(sx - triSize / 2, size.height)
+                        lineTo(sx + triSize / 2, size.height)
+                        lineTo(sx, size.height - triSize)
+                        close()
+                    }
+                    drawPath(botPath, color = color)
                 }
                 if (pair.endMs in startMs..endMs) {
                     drawLine(color = color, start = Offset(ex, 0f), end = Offset(ex, size.height), strokeWidth = strokeW)
-                    drawCircle(color = color, radius = circleR, center = Offset(ex, centerY))
+                    val topPath = Path().apply {
+                        moveTo(ex - triSize / 2, 0f)
+                        lineTo(ex + triSize / 2, 0f)
+                        lineTo(ex, triSize)
+                        close()
+                    }
+                    drawPath(topPath, color = color)
+                    val botPath = Path().apply {
+                        moveTo(ex - triSize / 2, size.height)
+                        lineTo(ex + triSize / 2, size.height)
+                        lineTo(ex, size.height - triSize)
+                        close()
+                    }
+                    drawPath(botPath, color = color)
                 }
             }
 
