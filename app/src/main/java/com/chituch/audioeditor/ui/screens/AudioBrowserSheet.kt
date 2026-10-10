@@ -81,21 +81,49 @@ fun AudioBrowserSheet(
 
     val currentPath = folderStack.lastOrNull()
 
-    val allDirs = remember(audioFiles) {
+    // Dirs that directly contain audio files
+    val allLeafDirs = remember(audioFiles) {
         audioFiles?.mapNotNull { f ->
-            val dir = f.filePath.substringBeforeLast('/', "")
-            dir.ifEmpty { null }
+            f.filePath.substringBeforeLast('/', "").ifEmpty { null }
         }?.toSet() ?: emptySet()
     }
 
-    val currentSubdirs = remember(allDirs, currentPath, audioFiles) {
-        val dirs = if (currentPath == null) {
-            allDirs.filter { dir -> allDirs.none { other -> other != dir && dir.startsWith("$other/") } }
-        } else {
-            allDirs.filter { dir ->
-                dir.startsWith("$currentPath/") &&
-                !dir.removePrefix("$currentPath/").contains('/')
+    // Longest common ancestor path of all leaf dirs
+    val commonRoot = remember(allLeafDirs) {
+        when {
+            allLeafDirs.isEmpty() -> ""
+            allLeafDirs.size == 1 -> allLeafDirs.first().substringBeforeLast('/', "")
+            else -> {
+                val sp = allLeafDirs.map { it.split('/') }
+                val minLen = sp.minOf { it.size }
+                var d = 0
+                while (d < minLen && sp.all { it[d] == sp[0][d] }) d++
+                if (d == 0) "" else sp[0].take(d).joinToString("/")
             }
+        }
+    }
+
+    // All dirs including intermediate ancestors down to leaf dirs
+    val allDirs = remember(allLeafDirs, commonRoot) {
+        buildSet<String> {
+            allLeafDirs.forEach { leafDir ->
+                var path = leafDir
+                add(path)
+                while (true) {
+                    val parent = path.substringBeforeLast('/', "")
+                    if (parent.isEmpty() || parent.length <= commonRoot.length) break
+                    add(parent)
+                    path = parent
+                }
+            }
+        }
+    }
+
+    val currentSubdirs = remember(allDirs, currentPath, commonRoot, audioFiles) {
+        val base = currentPath ?: commonRoot
+        val prefix = if (base.isEmpty()) "" else "$base/"
+        val dirs = allDirs.filter { dir ->
+            dir.startsWith(prefix) && !dir.removePrefix(prefix).contains('/')
         }
         dirs.sortedBy { it.substringAfterLast('/').lowercase() }.map { path ->
             val subtreeCount = audioFiles?.count { f ->
@@ -110,9 +138,9 @@ fun AudioBrowserSheet(
         }
     }
 
-    val currentFiles = remember(audioFiles, currentPath) {
-        if (currentPath == null) emptyList()
-        else audioFiles?.filter { it.filePath.substringBeforeLast('/') == currentPath } ?: emptyList()
+    val currentFiles = remember(audioFiles, currentPath, commonRoot) {
+        val path = currentPath ?: commonRoot
+        audioFiles?.filter { it.filePath.substringBeforeLast('/') == path } ?: emptyList()
     }
 
     val showFolderTree = searchQuery.isBlank()

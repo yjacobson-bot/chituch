@@ -151,6 +151,12 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
             audioPlayer.pause()
             _state.value = _state.value.copy(isPlaying = false)
         } else {
+            val cur = _state.value
+            val activePair = cur.segmentPairs.find { it.id == cur.activeSegmentId }
+            if (activePair != null && cur.currentPositionMs < activePair.startMs) {
+                audioPlayer.seekTo(activePair.startMs)
+                _state.value = cur.copy(currentPositionMs = activePair.startMs)
+            }
             audioPlayer.play()
             _state.value = _state.value.copy(isPlaying = true)
         }
