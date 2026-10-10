@@ -67,7 +67,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
         }
     }
 
-    // Auto-trigger save-elsewhere after export when user chose that option
     LaunchedEffect(state.exportedFiles, state.autoSaveElsewhere) {
         if (state.autoSaveElsewhere && state.exportedFiles.isNotEmpty()) {
             vm.setAutoSaveElsewhere(false)
@@ -82,7 +81,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
 
-            // ── Header ─────────────────────────────────────────────────────────────────
             Surface(color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -109,10 +107,8 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
 
             Column(modifier = Modifier.padding(16.dp)) {
 
-                // ── File picker ───────────────────────────────────────────────────────────────
                 Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(2.dp)) {
                     if (state.audioUri == null) {
-                        // Empty state — big tap target to open in-app browser
                         Column(
                             modifier = Modifier.fillMaxWidth().clickable { vm.openAudioBrowser() }.padding(32.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -158,10 +154,8 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                     Column {
                         Spacer(Modifier.height(16.dp))
 
-                        // ── Waveform + controls ─────────────────────────────────────────────────────────
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(2.dp)) {
                             Column {
-                                // Taller waveform (200dp)
                                 if (state.isLoadingWaveform) {
                                     Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(Color(0xFF1A1A2E)), contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(color = Color(0xFF7C4DFF))
@@ -185,7 +179,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                     )
                                 }
 
-                                // ── Quick time inputs directly below waveform ─────
                                 val activePair = state.segmentPairs.find { it.id == state.activeSegmentId }
                                 if (activePair != null && !state.isLoadingWaveform) {
                                     val activeColor = segmentColors[state.segmentPairs.indexOfFirst { it.id == state.activeSegmentId }.coerceAtLeast(0) % segmentColors.size]
@@ -193,7 +186,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                         modifier = Modifier.fillMaxWidth().background(Color(0xFF1E1E32)).padding(horizontal = 10.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        // Colored dot
                                         Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(activeColor))
                                         Spacer(Modifier.width(6.dp))
                                         SegmentTimeInputRow(
@@ -209,7 +201,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                     }
                                 }
 
-                                // Zoom controls
                                 Row(
                                     modifier = Modifier.fillMaxWidth().background(Color(0xFF1A1A2E)).padding(horizontal = 12.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -231,7 +222,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                     )
                                 }
 
-                                // Player controls
                                 Row(
                                     modifier = Modifier.fillMaxWidth().background(Color(0xFF1A1A2E)).padding(horizontal = 16.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -247,7 +237,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                     Text(formatTime(state.durationMs), color = Color(0xFF90A4AE), style = MaterialTheme.typography.bodySmall)
                                 }
 
-                                // Speed selector
                                 Row(
                                     modifier = Modifier.fillMaxWidth().background(Color(0xFF12121E)).padding(horizontal = 12.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.Center,
@@ -276,7 +265,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
 
                         Spacer(Modifier.height(16.dp))
 
-                        // ── Edit Mode ─────────────────────────────────────────────────────────────────────────
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(2.dp)) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text("מצב עריכה", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -290,7 +278,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
 
                         Spacer(Modifier.height(16.dp))
 
-                        // ── Segments ──────────────────────────────────────────────────────────────────────────────
                         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), elevation = CardDefaults.cardElevation(2.dp)) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -367,7 +354,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
 
                         Spacer(Modifier.height(16.dp))
 
-                        // ── Export button ────────────────────────────────────────────────────────────────────────────
                         Button(
                             onClick = vm::showExportDialog,
                             modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -383,7 +369,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                             }
                         }
 
-                        // ── Exported files ───────────────────────────────────────────────────────────────────────────
                         AnimatedVisibility(visible = state.exportedFiles.isNotEmpty()) {
                             Card(
                                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -426,7 +411,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
             }
         }
 
-        // ── Export dialog ────────────────────────────────────────────────────────────────────────────
         if (state.showExportDialog) {
             ExportDialog(
                 settings = state.exportSettings,
@@ -437,7 +421,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
             )
         }
 
-        // ── In-app audio browser ──────────────────────────────────────────────────────────────────────────
         if (state.showAudioBrowser) {
             AudioBrowserSheet(
                 onDismiss = vm::closeAudioBrowser,
@@ -451,8 +434,6 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
         }
     }
 }
-
-// ── Export dialog ────────────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ExportDialog(
@@ -498,7 +479,6 @@ private fun ExportDialog(
                         }
                     }
                 }
-
             }
         },
         confirmButton = {
@@ -514,8 +494,6 @@ private fun ExportDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("ביטול") } }
     )
 }
-
-// ── Small reusable composables ────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ModeChip(text: String, desc: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -570,8 +548,6 @@ private fun FadeSlider(label: String, valueMs: Long, color: Color, modifier: Mod
         )
     }
 }
-
-// ── Helpers ────────────────────────────────────────────────────────────────────────────────────────
 
 private fun getRealPath(context: android.content.Context, uri: Uri): String? = try {
     if (uri.scheme == "file") uri.path

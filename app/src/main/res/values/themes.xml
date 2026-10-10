@@ -1,9 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.ChiTuch" parent="android:Theme.Material.Light.NoActionBar" />
-    <style name="Theme.ChiTuch.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#08193B</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_image</item>
-        <item name="postSplashScreenTheme">@style/Theme.ChiTuch</item>
-    </style>
 </resources>

@@ -79,7 +79,6 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         return Pair(ExportSettings(outputFormat = format, bitrateKbps = bitrate), speed)
     }
 
-    // Undo/redo history — stores snapshots of segmentPairs
     private val history = ArrayDeque<List<SegmentPair>>()
     private var historyIndex = -1
     private var lastHistoryPushMs = 0L
@@ -92,7 +91,6 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         audioPlayer.setOnProgressChanged { pos ->
             val cur = _state.value
             _state.value = cur.copy(currentPositionMs = pos)
-            // Auto-scroll: if zoomed in and playhead exits visible window, scroll to follow
             if (cur.waveformZoom > 1f) {
                 val visibleMs = (cur.durationMs / cur.waveformZoom).toLong()
                 val visibleEnd = cur.waveformScrollMs + visibleMs
@@ -240,8 +238,6 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         _state.value = _state.value.copy(activeSegmentId = id)
     }
 
-    // ── Waveform zoom ────────────────────────────────────────────────────────────
-
     fun setWaveformZoom(zoom: Float) {
         val cur = _state.value
         val newZoom = zoom.coerceIn(1f, 30f)
@@ -254,7 +250,6 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         val cur = _state.value
         if (cur.durationMs == 0L) return
         val segDuration = (endMs - startMs).coerceAtLeast(1L)
-        // Add 10% padding on each side
         val paddedStart = (startMs - segDuration * 0.1).toLong().coerceAtLeast(0L)
         val paddedEnd = (endMs + segDuration * 0.1).toLong().coerceAtMost(cur.durationMs)
         val paddedDuration = paddedEnd - paddedStart
@@ -268,11 +263,8 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         _state.value = cur.copy(waveformScrollMs = scrollMs.coerceIn(0L, maxScroll))
     }
 
-    // ── Undo / Redo ──────────────────────────────────────────────────────────────
-
     private fun pushHistory(pairs: List<SegmentPair>) {
         val now = System.currentTimeMillis()
-        // Debounce: if same call within 400ms, replace last entry
         if (now - lastHistoryPushMs < 400 && historyIndex >= 0) {
             history[historyIndex] = pairs
             lastHistoryPushMs = now
@@ -317,8 +309,6 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
             successMessage = desc
         )
     }
-
-    // ── Export settings ──────────────────────────────────────────────────────────
 
     fun updateExportSettings(settings: ExportSettings) {
         _state.value = _state.value.copy(exportSettings = settings)

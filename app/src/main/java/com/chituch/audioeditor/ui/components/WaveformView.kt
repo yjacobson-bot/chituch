@@ -146,7 +146,6 @@ fun WaveformView(
             val centerY = size.height / 2f
             val maxBarH = size.height * 0.45f
 
-            // Visible range of waveform samples
             val totalSamples = waveformData.size
             val startFrac = startMs.toFloat() / durationMs
             val endFrac = endMs.toFloat() / durationMs
@@ -165,7 +164,6 @@ fun WaveformView(
                     strokeWidth = (barW * 0.7f).coerceAtLeast(1f), cap = StrokeCap.Round)
             }
 
-            // Segment regions
             segmentPairs.forEachIndexed { idx, pair ->
                 val color = segmentColors[idx % segmentColors.size]
                 val sx = msToX(pair.startMs).coerceIn(0f, size.width)
@@ -193,13 +191,11 @@ fun WaveformView(
                         close()
                     }
                     drawPath(botPath, color = color)
-                    // Timestamp label above start handle
                     drawIntoCanvas { canvas ->
                         val label = formatTime(pair.startMs)
                         labelPaint.color = android.graphics.Color.argb(230, (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())
                         val textW = labelPaint.measureText(label)
                         val lx = (sx - textW / 2f).coerceIn(2f, size.width - textW - 2f)
-                        // Background pill
                         val bgPaint = android.graphics.Paint().apply {
                             this.color = android.graphics.Color.argb(180, 20, 20, 40)
                             isAntiAlias = true
@@ -228,7 +224,6 @@ fun WaveformView(
                         close()
                     }
                     drawPath(botPath, color = color)
-                    // Timestamp label above end handle
                     drawIntoCanvas { canvas ->
                         val label = formatTime(pair.endMs)
                         labelPaint.color = android.graphics.Color.argb(230, (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())
@@ -248,15 +243,11 @@ fun WaveformView(
                 }
             }
 
-            // Playhead
             val px = msToX(currentPositionMs)
             if (px in 0f..size.width) {
                 drawLine(color = Color.White, start = Offset(px, 0f), end = Offset(px, size.height), strokeWidth = 2.dp.toPx())
                 drawCircle(color = Color.White, radius = 6.dp.toPx(), center = Offset(px, 8.dp.toPx()))
             }
-
-            // Time labels at edges
-            val timeColor = Color.White.copy(alpha = 0.5f)
         }
     }
 }
