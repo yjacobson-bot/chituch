@@ -250,7 +250,8 @@ object AudioProcessor {
             val endUs = endMs * 1000L
             val startUs = startMs * 1000L
 
-            val allSamples = mutableListOf<Short>()
+            val chunks = mutableListOf<ShortArray>()
+            var totalShorts = 0
             val bufInfo = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
@@ -276,13 +277,17 @@ object AudioProcessor {
                     val buf = decoder.getOutputBuffer(outIdx)!!
                     val shorts = ShortArray(bufInfo.size / 2)
                     buf.asShortBuffer().get(shorts)
-                    allSamples.addAll(shorts.toList())
+                    chunks.add(shorts)
+                    totalShorts += shorts.size
                     decoder.releaseOutputBuffer(outIdx, false)
                     if (bufInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
                 }
             }
             decoder.stop()
-            PcmData(allSamples.toShortArray(), sampleRate, channels)
+            val allSamples = ShortArray(totalShorts)
+            var pos = 0
+            for (chunk in chunks) { chunk.copyInto(allSamples, pos); pos += chunk.size }
+            PcmData(allSamples, sampleRate, channels)
         } catch (_: Exception) { null }
         finally {
             extractor.release()

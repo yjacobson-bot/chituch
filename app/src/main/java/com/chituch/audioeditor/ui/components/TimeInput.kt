@@ -80,7 +80,7 @@ fun SegmentTimeInputRow(
 
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(modifier = Modifier.weight(1f)) {
-            if (!compact) Text("זמן התחלה", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+            Text("זמן התחלה", style = MaterialTheme.typography.labelSmall, color = if (compact) segmentColor.copy(alpha = 0.7f) else Color.Gray, fontSize = 10.sp)
             OutlinedTextField(
                 value = startText, onValueChange = { startText = it },
                 singleLine = true,
@@ -104,7 +104,7 @@ fun SegmentTimeInputRow(
             )
         }
         Column(modifier = Modifier.weight(1f)) {
-            if (!compact) Text("זמן סיום", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+            Text("זמן סיום", style = MaterialTheme.typography.labelSmall, color = if (compact) segmentColor.copy(alpha = 0.7f) else Color.Gray, fontSize = 10.sp)
             OutlinedTextField(
                 value = endText, onValueChange = { endText = it },
                 singleLine = true,

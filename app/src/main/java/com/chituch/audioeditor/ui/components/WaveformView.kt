@@ -80,7 +80,7 @@ fun WaveformView(
                     detectTransformGestures { _, pan, zoomDelta, _ ->
                         val newZoom = (zoomLevel * zoomDelta).coerceIn(1f, 30f)
                         onZoomChanged(newZoom)
-                        val panMs = -(pan.x / canvasWidth.coerceAtLeast(1f)) * visibleMs
+                        val panMs = -(pan.x / canvasWidth.coerceAtLeast(1f)) * visibleMs * 2.5f
                         onScrollChanged((scrollOffsetMs + panMs.toLong()))
                     }
                 }
@@ -105,7 +105,7 @@ fun WaveformView(
                             change.consume()
                             val d = dragging
                             if (d == null) {
-                                val panMs = -(dragAmount.x / canvasWidth.coerceAtLeast(1f)) * visibleMs
+                                val panMs = -(dragAmount.x / canvasWidth.coerceAtLeast(1f)) * visibleMs * 2.5f
                                 onScrollChanged((scrollOffsetMs + panMs.toLong()))
                             } else {
                                 val ms = xToMs(change.position.x)

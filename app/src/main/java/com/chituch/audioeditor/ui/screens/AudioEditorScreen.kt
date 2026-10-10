@@ -208,12 +208,12 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                 ) {
                                     Text(formatTime(state.waveformScrollMs), color = Color(0xFF90A4AE), style = MaterialTheme.typography.bodySmall, fontSize = 10.sp)
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(onClick = { vm.setWaveformZoom(state.waveformZoom / 1.5f) }, modifier = Modifier.size(28.dp)) {
-                                            Icon(Icons.Default.ZoomOut, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(16.dp))
+                                        IconButton(onClick = { vm.setWaveformZoom(state.waveformZoom / 1.5f) }, modifier = Modifier.size(44.dp)) {
+                                            Icon(Icons.Default.ZoomOut, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(24.dp))
                                         }
-                                        Text("${state.waveformZoom.toInt()}×", color = Color.White, fontSize = 11.sp, modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)
-                                        IconButton(onClick = { vm.setWaveformZoom(state.waveformZoom * 1.5f) }, modifier = Modifier.size(28.dp)) {
-                                            Icon(Icons.Default.ZoomIn, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(16.dp))
+                                        Text("${state.waveformZoom.toInt()}×", color = Color.White, fontSize = 13.sp, modifier = Modifier.width(34.dp), textAlign = TextAlign.Center)
+                                        IconButton(onClick = { vm.setWaveformZoom(state.waveformZoom * 1.5f) }, modifier = Modifier.size(44.dp)) {
+                                            Icon(Icons.Default.ZoomIn, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(24.dp))
                                         }
                                     }
                                     Text(
