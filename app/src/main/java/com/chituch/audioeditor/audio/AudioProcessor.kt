@@ -68,9 +68,10 @@ object AudioProcessor {
                     tmp
                 }
                 val out = File(outputDir, "output.$outputExt")
-                val ok = when (effectiveFormat) {
-                    OutputFormat.WAV -> concatWav(temps, out)
-                    OutputFormat.AAC_M4A, OutputFormat.ORIGINAL -> concatM4a(temps, out)
+                val ok = when {
+                    outputExt == "mp3" -> concatMp3(temps, out)
+                    effectiveFormat == OutputFormat.WAV -> concatWav(temps, out)
+                    else -> concatM4a(temps, out)
                 }
                 temps.forEach { it.delete() }
                 if (ok) listOf(out) else emptyList()
@@ -97,7 +98,6 @@ object AudioProcessor {
                 inputPath.endsWith(".m4a", ignoreCase = true) || inputPath.endsWith(".aac", ignoreCase = true) ->
                 Pair(OutputFormat.AAC_M4A, "m4a")
             else -> {
-                // Preserve original extension for formats like MP3, OGG, FLAC, OPUS, etc.
                 val origExt = inputPath.substringAfterLast('.', "").lowercase().ifEmpty { "mp3" }
                 Pair(OutputFormat.ORIGINAL, origExt)
             }
@@ -113,8 +113,9 @@ object AudioProcessor {
                 else reencodeToAac(inputPath, seg, settings.bitrateKbps * 1000, out)
             }
             OutputFormat.ORIGINAL -> {
-                // Try bitstream copy preserving original codec; fall back to AAC re-encode
-                if (!needsFade && tryDirectCopyAny(inputPath, seg.startMs, seg.endMs, out)) true
+                val isMp3 = inputPath.endsWith(".mp3", ignoreCase = true)
+                if (isMp3) trimToMp3(inputPath, seg.startMs, seg.endMs, out)
+                else if (!needsFade && tryDirectCopyAny(inputPath, seg.startMs, seg.endMs, out)) true
                 else reencodeToAac(inputPath, seg, settings.bitrateKbps * 1000, out)
             }
         }
@@ -164,7 +165,7 @@ object AudioProcessor {
         }
     }
 
-    // ── Direct copy for non-AAC codecs (MP3, OGG, etc.) into MPEG-4 container ──
+    // ── Direct copy for non-AAC codecs (OGG, FLAC, etc.) into MPEG-4 container ─
 
     private fun tryDirectCopyAny(inputPath: String, startMs: Long, endMs: Long, outputFile: File): Boolean {
         val extractor = MediaExtractor()
@@ -204,6 +205,34 @@ object AudioProcessor {
             extractor.release()
             try { muxer?.release() } catch (_: Exception) {}
         }
+    }
+
+    // ── MP3 frame-level copy (bypasses MediaMuxer entirely) ─────────────────────
+
+    private fun trimToMp3(inputPath: String, startMs: Long, endMs: Long, outputFile: File): Boolean {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(inputPath)
+            val track = findAudioTrack(extractor)
+            if (track < 0) return false
+            extractor.selectTrack(track)
+            extractor.seekTo(startMs * 1000L, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            val buf = ByteBuffer.allocate(256 * 1024)
+            outputFile.outputStream().use { out ->
+                while (true) {
+                    val size = extractor.readSampleData(buf, 0)
+                    if (size < 0) break
+                    if (extractor.sampleTime > endMs * 1000L) break
+                    val bytes = ByteArray(size)
+                    buf.rewind()
+                    buf.get(bytes)
+                    out.write(bytes)
+                    extractor.advance()
+                }
+            }
+            true
+        } catch (_: Exception) { outputFile.delete(); false }
+        finally { extractor.release() }
     }
 
     // ── Decode → apply fade → encode AAC ────────────────────────────────────────
@@ -384,6 +413,17 @@ object AudioProcessor {
     }
 
     // ── Concat helpers ───────────────────────────────────────────────────────────
+
+    private fun concatMp3(files: List<File>, output: File): Boolean {
+        return try {
+            output.outputStream().use { out ->
+                files.forEach { file ->
+                    if (file.exists()) file.inputStream().use { it.copyTo(out) }
+                }
+            }
+            true
+        } catch (_: Exception) { output.delete(); false }
+    }
 
     private fun concatM4a(files: List<File>, output: File): Boolean {
         if (files.size == 1) { files[0].copyTo(output, overwrite = true); return true }

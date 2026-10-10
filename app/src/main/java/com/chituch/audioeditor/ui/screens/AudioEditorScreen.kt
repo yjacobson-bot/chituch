@@ -342,9 +342,18 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                             )
 
                                             Spacer(Modifier.height(10.dp))
-                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                                FadeSlider("Fade In", pair.fadeInMs, color, Modifier.weight(1f)) { vm.updateSegmentFadeIn(pair.id, it) }
-                                                FadeSlider("Fade Out", pair.fadeOutMs, color, Modifier.weight(1f)) { vm.updateSegmentFadeOut(pair.id, it) }
+                                            if (state.inputMimeType.contains("mpeg", ignoreCase = true)) {
+                                                Text(
+                                                    "Fade אינו זמין לקבצי MP3",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color.Gray,
+                                                    modifier = Modifier.padding(vertical = 4.dp)
+                                                )
+                                            } else {
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                    FadeSlider("Fade In", pair.fadeInMs, color, Modifier.weight(1f)) { vm.updateSegmentFadeIn(pair.id, it) }
+                                                    FadeSlider("Fade Out", pair.fadeOutMs, color, Modifier.weight(1f)) { vm.updateSegmentFadeOut(pair.id, it) }
+                                                }
                                             }
                                         }
                                     }

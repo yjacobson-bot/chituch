@@ -55,7 +55,7 @@ fun AudioBrowserSheet(
     var audioFiles by remember { mutableStateOf<List<AudioFile>?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var hasPermission by remember { mutableStateOf(false) }
-    var currentFolder by remember { mutableStateOf<String?>(null) }
+    var folderStack by remember { mutableStateOf(listOf<String>()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -79,32 +79,48 @@ fun AudioBrowserSheet(
         }
     }
 
-    val folders = remember(audioFiles) {
-        audioFiles
-            ?.filter { it.filePath.isNotEmpty() }
-            ?.groupBy { it.filePath.substringBeforeLast('/') }
-            ?.map { (path, files) ->
-                AudioFolder(
-                    path = path,
-                    displayName = path.substringAfterLast('/').ifBlank { path },
-                    fileCount = files.size
-                )
-            }
-            ?.sortedBy { it.displayName.lowercase() }
-            ?: emptyList()
+    val currentPath = folderStack.lastOrNull()
+
+    val allDirs = remember(audioFiles) {
+        audioFiles?.mapNotNull { f ->
+            val dir = f.filePath.substringBeforeLast('/', "")
+            dir.ifEmpty { null }
+        }?.toSet() ?: emptySet()
     }
 
-    val showFolderList = searchQuery.isBlank() && currentFolder == null
-
-    val filtered = remember(audioFiles, searchQuery, currentFolder) {
-        val files = audioFiles ?: return@remember emptyList()
-        val inScope = when {
-            searchQuery.isNotBlank() -> files
-            currentFolder != null -> files.filter { it.filePath.substringBeforeLast('/') == currentFolder }
-            else -> emptyList()
+    val currentSubdirs = remember(allDirs, currentPath, audioFiles) {
+        val dirs = if (currentPath == null) {
+            allDirs.filter { dir -> allDirs.none { other -> other != dir && dir.startsWith("$other/") } }
+        } else {
+            allDirs.filter { dir ->
+                dir.startsWith("$currentPath/") &&
+                !dir.removePrefix("$currentPath/").contains('/')
+            }
         }
-        if (searchQuery.isBlank()) inScope
-        else inScope.filter {
+        dirs.sortedBy { it.substringAfterLast('/').lowercase() }.map { path ->
+            val subtreeCount = audioFiles?.count { f ->
+                val fDir = f.filePath.substringBeforeLast('/')
+                fDir == path || fDir.startsWith("$path/")
+            } ?: 0
+            AudioFolder(
+                path = path,
+                displayName = path.substringAfterLast('/').ifBlank { path },
+                fileCount = subtreeCount
+            )
+        }
+    }
+
+    val currentFiles = remember(audioFiles, currentPath) {
+        if (currentPath == null) emptyList()
+        else audioFiles?.filter { it.filePath.substringBeforeLast('/') == currentPath } ?: emptyList()
+    }
+
+    val showFolderTree = searchQuery.isBlank()
+
+    val filtered = remember(audioFiles, searchQuery) {
+        val files = audioFiles ?: return@remember emptyList()
+        if (searchQuery.isBlank()) emptyList()
+        else files.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
             it.artist.contains(searchQuery, ignoreCase = true) ||
             it.displayName.contains(searchQuery, ignoreCase = true)
@@ -122,16 +138,16 @@ fun AudioBrowserSheet(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (currentFolder != null) {
-                    IconButton(onClick = { currentFolder = null }) {
+                if (folderStack.isNotEmpty()) {
+                    IconButton(onClick = { folderStack = folderStack.dropLast(1) }) {
                         Icon(Icons.Default.ArrowBack, "חזור")
                     }
                 }
                 Text(
-                    text = if (currentFolder != null)
-                        currentFolder!!.substringAfterLast('/').ifBlank { "תיקייה" }
-                    else
-                        "בחר קובץ שמע",
+                    text = when {
+                        currentPath != null -> currentPath.substringAfterLast('/').ifBlank { "תיקייה" }
+                        else -> "בחר קובץ שמע"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -172,52 +188,69 @@ fun AudioBrowserSheet(
                         CircularProgressIndicator(color = Color(0xFF7C4DFF))
                     }
                 }
-                showFolderList -> {
-                    if (folders.isEmpty()) {
+                !showFolderTree -> {
+                    if (filtered.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Default.MusicOff, null, modifier = Modifier.size(48.dp), tint = Color.Gray)
                                 Spacer(Modifier.height(8.dp))
-                                Text("לא נמצאו קבצי שמע", color = Color.Gray)
+                                Text("אין תוצאות לחיפוש", color = Color.Gray)
                             }
                         }
                     } else {
                         Text(
-                            "${folders.size} תיקיות · ${audioFiles!!.size} קבצים",
+                            "${filtered.size} קבצים",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.Gray,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                         LazyColumn {
-                            items(folders, key = { it.path }) { folder ->
-                                FolderRow(folder) { currentFolder = folder.path }
+                            items(filtered, key = { it.uri.toString() }) { file ->
+                                AudioFileRow(file) { onFileSelected(file.uri, file.displayName, file.filePath) }
                                 HorizontalDivider(modifier = Modifier.padding(start = 72.dp), thickness = 0.5.dp)
                             }
                             item { Spacer(Modifier.height(40.dp)) }
                         }
                     }
                 }
-                filtered.isEmpty() -> {
+                currentSubdirs.isEmpty() && currentFiles.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.MusicOff, null, modifier = Modifier.size(48.dp), tint = Color.Gray)
                             Spacer(Modifier.height(8.dp))
-                            Text(if (searchQuery.isBlank()) "תיקייה ריקה" else "אין תוצאות לחיפוש", color = Color.Gray)
+                            Text(
+                                if (audioFiles!!.isEmpty()) "לא נמצאו קבצי שמע" else "תיקייה ריקה",
+                                color = Color.Gray
+                            )
                         }
                     }
                 }
                 else -> {
+                    val subtitle = if (currentPath == null) {
+                        "${currentSubdirs.size} תיקיות · ${audioFiles!!.size} קבצים"
+                    } else {
+                        buildString {
+                            if (currentSubdirs.isNotEmpty()) append("${currentSubdirs.size} תיקיות")
+                            if (currentSubdirs.isNotEmpty() && currentFiles.isNotEmpty()) append(" · ")
+                            if (currentFiles.isNotEmpty()) append("${currentFiles.size} קבצים")
+                        }
+                    }
                     Text(
-                        "${filtered.size} קבצים",
+                        subtitle,
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.Gray,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                     )
                     LazyColumn {
-                        items(filtered, key = { it.uri.toString() }) { file ->
-                            AudioFileRow(file) {
-                                onFileSelected(file.uri, file.displayName, file.filePath)
-                            }
+                        items(currentSubdirs, key = { it.path }) { folder ->
+                            FolderRow(folder) { folderStack = folderStack + folder.path }
+                            HorizontalDivider(modifier = Modifier.padding(start = 72.dp), thickness = 0.5.dp)
+                        }
+                        if (currentSubdirs.isNotEmpty() && currentFiles.isNotEmpty()) {
+                            item { HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp)) }
+                        }
+                        items(currentFiles, key = { it.uri.toString() }) { file ->
+                            AudioFileRow(file) { onFileSelected(file.uri, file.displayName, file.filePath) }
                             HorizontalDivider(modifier = Modifier.padding(start = 72.dp), thickness = 0.5.dp)
                         }
                         item { Spacer(Modifier.height(40.dp)) }
