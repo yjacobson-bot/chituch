@@ -39,6 +39,12 @@ data class AudioFile(
     val filePath: String
 )
 
+data class AudioFolder(
+    val path: String,
+    val displayName: String,
+    val fileCount: Int
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudioBrowserSheet(
@@ -49,6 +55,7 @@ fun AudioBrowserSheet(
     var audioFiles by remember { mutableStateOf<List<AudioFile>?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var hasPermission by remember { mutableStateOf(false) }
+    var currentFolder by remember { mutableStateOf<String?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -72,10 +79,32 @@ fun AudioBrowserSheet(
         }
     }
 
-    val filtered = remember(audioFiles, searchQuery) {
+    val folders = remember(audioFiles) {
+        audioFiles
+            ?.filter { it.filePath.isNotEmpty() }
+            ?.groupBy { it.filePath.substringBeforeLast('/') }
+            ?.map { (path, files) ->
+                AudioFolder(
+                    path = path,
+                    displayName = path.substringAfterLast('/').ifBlank { path },
+                    fileCount = files.size
+                )
+            }
+            ?.sortedBy { it.displayName.lowercase() }
+            ?: emptyList()
+    }
+
+    val showFolderList = searchQuery.isBlank() && currentFolder == null
+
+    val filtered = remember(audioFiles, searchQuery, currentFolder) {
         val files = audioFiles ?: return@remember emptyList()
-        if (searchQuery.isBlank()) files
-        else files.filter {
+        val inScope = when {
+            searchQuery.isNotBlank() -> files
+            currentFolder != null -> files.filter { it.filePath.substringBeforeLast('/') == currentFolder }
+            else -> emptyList()
+        }
+        if (searchQuery.isBlank()) inScope
+        else inScope.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
             it.artist.contains(searchQuery, ignoreCase = true) ||
             it.displayName.contains(searchQuery, ignoreCase = true)
@@ -91,10 +120,24 @@ fun AudioBrowserSheet(
             // Header
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("בחר קובץ שמע", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                if (currentFolder != null) {
+                    IconButton(onClick = { currentFolder = null }) {
+                        Icon(Icons.Default.ArrowBack, "חזור")
+                    }
+                }
+                Text(
+                    text = if (currentFolder != null)
+                        currentFolder!!.substringAfterLast('/').ifBlank { "תיקייה" }
+                    else
+                        "בחר קובץ שמע",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null) }
             }
 
@@ -129,12 +172,37 @@ fun AudioBrowserSheet(
                         CircularProgressIndicator(color = Color(0xFF7C4DFF))
                     }
                 }
+                showFolderList -> {
+                    if (folders.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.MusicOff, null, modifier = Modifier.size(48.dp), tint = Color.Gray)
+                                Spacer(Modifier.height(8.dp))
+                                Text("לא נמצאו קבצי שמע", color = Color.Gray)
+                            }
+                        }
+                    } else {
+                        Text(
+                            "${folders.size} תיקיות · ${audioFiles!!.size} קבצים",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                        LazyColumn {
+                            items(folders, key = { it.path }) { folder ->
+                                FolderRow(folder) { currentFolder = folder.path }
+                                HorizontalDivider(modifier = Modifier.padding(start = 72.dp), thickness = 0.5.dp)
+                            }
+                            item { Spacer(Modifier.height(40.dp)) }
+                        }
+                    }
+                }
                 filtered.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.MusicOff, null, modifier = Modifier.size(48.dp), tint = Color.Gray)
                             Spacer(Modifier.height(8.dp))
-                            Text(if (searchQuery.isBlank()) "לא נמצאו קבצי שמע" else "אין תוצאות לחיפוש", color = Color.Gray)
+                            Text(if (searchQuery.isBlank()) "תיקייה ריקה" else "אין תוצאות לחיפוש", color = Color.Gray)
                         }
                     }
                 }
@@ -157,6 +225,42 @@ fun AudioBrowserSheet(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FolderRow(folder: AudioFolder, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF7C4DFF).copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Folder, null, tint = Color(0xFF7C4DFF), modifier = Modifier.size(26.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                folder.displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${folder.fileCount} קבצים",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Icon(Icons.Default.ChevronRight, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
     }
 }
 
