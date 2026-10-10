@@ -6,7 +6,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.chituch.audioeditor.audio.AudioPlayer
 import com.chituch.audioeditor.audio.AudioProcessor
-import com.chituch.audioeditor.audio.MediaStoreSaver
 import com.chituch.audioeditor.audio.WaveformExtractor
 import com.chituch.audioeditor.model.EditMode
 import com.chituch.audioeditor.model.ExportSettings
@@ -31,6 +30,7 @@ data class AudioEditorState(
     val audioUri: Uri? = null,
     val audioFileName: String = "",
     val audioPath: String = "",
+    val inputMimeType: String = "",
     val durationMs: Long = 0L,
     val currentPositionMs: Long = 0L,
     val isPlaying: Boolean = false,
@@ -50,7 +50,9 @@ data class AudioEditorState(
     val waveformZoom: Float = 1f,
     val waveformScrollMs: Long = 0L,
     val canUndo: Boolean = false,
-    val canRedo: Boolean = false
+    val canRedo: Boolean = false,
+    val loopingSegmentId: Int? = null,
+    val undoDescription: String? = null
 )
 
 class AudioEditorViewModel(application: Application) : AndroidViewModel(application) {
@@ -58,6 +60,23 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     val state: StateFlow<AudioEditorState> = _state.asStateFlow()
 
     private val audioPlayer = AudioPlayer(application)
+    private val prefs = application.getSharedPreferences("chituch_prefs", android.content.Context.MODE_PRIVATE)
+
+    private fun savePrefs(settings: ExportSettings, speed: Float) {
+        prefs.edit()
+            .putString("output_format", settings.outputFormat.name)
+            .putInt("bitrate", settings.bitrateKbps)
+            .putFloat("speed", speed)
+            .apply()
+    }
+
+    private fun loadPrefs(): Pair<ExportSettings, Float> {
+        val formatName = prefs.getString("output_format", OutputFormat.ORIGINAL.name) ?: OutputFormat.ORIGINAL.name
+        val format = try { OutputFormat.valueOf(formatName) } catch (_: Exception) { OutputFormat.ORIGINAL }
+        val bitrate = prefs.getInt("bitrate", 192)
+        val speed = prefs.getFloat("speed", 1f)
+        return Pair(ExportSettings(outputFormat = format, bitrateKbps = bitrate), speed)
+    }
 
     // Undo/redo history — stores snapshots of segmentPairs
     private val history = ArrayDeque<List<SegmentPair>>()
@@ -65,8 +84,23 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     private var lastHistoryPushMs = 0L
 
     init {
+        val (savedSettings, savedSpeed) = loadPrefs()
+        _state.value = _state.value.copy(exportSettings = savedSettings, playbackSpeed = savedSpeed)
+        audioPlayer.setSpeed(savedSpeed)
+
         audioPlayer.setOnProgressChanged { pos ->
-            _state.value = _state.value.copy(currentPositionMs = pos)
+            val cur = _state.value
+            _state.value = cur.copy(currentPositionMs = pos)
+            // Auto-scroll: if zoomed in and playhead exits visible window, scroll to follow
+            if (cur.waveformZoom > 1f) {
+                val visibleMs = (cur.durationMs / cur.waveformZoom).toLong()
+                val visibleEnd = cur.waveformScrollMs + visibleMs
+                if (pos > visibleEnd || pos < cur.waveformScrollMs) {
+                    val maxScroll = (cur.durationMs - visibleMs).coerceAtLeast(0L)
+                    val newScroll = (pos - (visibleMs * 0.15).toLong()).coerceIn(0L, maxScroll)
+                    _state.value = _state.value.copy(waveformScrollMs = newScroll)
+                }
+            }
         }
         audioPlayer.setOnPlaybackComplete {
             _state.value = _state.value.copy(isPlaying = false)
@@ -86,18 +120,28 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     fun loadAudio(uri: Uri, fileName: String, filePath: String) {
         viewModelScope.launch {
             history.clear(); historyIndex = -1
+            val detectedMime = when {
+                filePath.endsWith(".wav", ignoreCase = true) -> "audio/wav"
+                filePath.endsWith(".m4a", ignoreCase = true) || filePath.endsWith(".aac", ignoreCase = true) -> "audio/mp4"
+                filePath.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
+                filePath.endsWith(".ogg", ignoreCase = true) -> "audio/ogg"
+                filePath.endsWith(".flac", ignoreCase = true) -> "audio/flac"
+                filePath.endsWith(".opus", ignoreCase = true) -> "audio/opus"
+                else -> ""
+            }
             _state.value = _state.value.copy(
                 audioUri = uri, audioFileName = fileName, audioPath = filePath,
+                inputMimeType = detectedMime,
                 isLoadingWaveform = true, segmentPairs = listOf(SegmentPair(0, 0L, 0L)),
                 exportedFiles = emptyList(), errorMessage = null,
                 waveformZoom = 1f, waveformScrollMs = 0L,
-                canUndo = false, canRedo = false
+                canUndo = false, canRedo = false, isPlaying = false
             )
             try {
                 audioPlayer.loadAudio(uri)
                 val waveform = WaveformExtractor.extract(getApplication(), uri, 500)
                 _state.value = _state.value.copy(waveformData = waveform, isLoadingWaveform = false)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 _state.value = _state.value.copy(isLoadingWaveform = false, errorMessage = "שגיאה בטעינת הקובץ: ${e.message}")
             }
         }
@@ -115,8 +159,16 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
 
     fun previewSegment(id: Int) {
         val pair = _state.value.segmentPairs.find { it.id == id } ?: return
-        audioPlayer.playSegment(pair.startMs, pair.endMs)
+        val isLoop = _state.value.loopingSegmentId == id
+        audioPlayer.playSegment(pair.startMs, pair.endMs, loop = isLoop)
         _state.value = _state.value.copy(isPlaying = true)
+    }
+
+    fun toggleLoopSegment(id: Int) {
+        val cur = _state.value
+        val newLoopId = if (cur.loopingSegmentId == id) null else id
+        _state.value = cur.copy(loopingSegmentId = newLoopId)
+        audioPlayer.setLooping(newLoopId != null)
     }
 
     fun seekTo(positionMs: Long) {
@@ -127,6 +179,7 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     fun setPlaybackSpeed(speed: Float) {
         audioPlayer.setSpeed(speed)
         _state.value = _state.value.copy(playbackSpeed = speed)
+        savePrefs(_state.value.exportSettings, speed)
     }
 
     fun setEditMode(mode: EditMode) {
@@ -196,6 +249,18 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         _state.value = cur.copy(waveformZoom = newZoom, waveformScrollMs = newScroll)
     }
 
+    fun zoomToSegment(startMs: Long, endMs: Long) {
+        val cur = _state.value
+        if (cur.durationMs == 0L) return
+        val segDuration = (endMs - startMs).coerceAtLeast(1L)
+        // Add 10% padding on each side
+        val paddedStart = (startMs - segDuration * 0.1).toLong().coerceAtLeast(0L)
+        val paddedEnd = (endMs + segDuration * 0.1).toLong().coerceAtMost(cur.durationMs)
+        val paddedDuration = paddedEnd - paddedStart
+        val newZoom = (cur.durationMs.toFloat() / paddedDuration.toFloat()).coerceIn(1f, 30f)
+        _state.value = cur.copy(waveformZoom = newZoom, waveformScrollMs = paddedStart)
+    }
+
     fun setWaveformScroll(scrollMs: Long) {
         val cur = _state.value
         val maxScroll = (cur.durationMs - (cur.durationMs / cur.waveformZoom).toLong()).coerceAtLeast(0L)
@@ -223,20 +288,32 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
     fun undo() {
         if (historyIndex <= 0) return
         historyIndex--
+        val pairs = history[historyIndex]
+        val desc = if (pairs.isNotEmpty()) {
+            val p = pairs.first()
+            "חזרת ל: ${formatTime(p.startMs)}–${formatTime(p.endMs)}"
+        } else "בוטל"
         _state.value = _state.value.copy(
-            segmentPairs = history[historyIndex],
+            segmentPairs = pairs,
             canUndo = historyIndex > 0,
-            canRedo = true
+            canRedo = true,
+            successMessage = desc
         )
     }
 
     fun redo() {
         if (historyIndex >= history.size - 1) return
         historyIndex++
+        val pairs = history[historyIndex]
+        val desc = if (pairs.isNotEmpty()) {
+            val p = pairs.first()
+            "חזור ל: ${formatTime(p.startMs)}–${formatTime(p.endMs)}"
+        } else "חזור"
         _state.value = _state.value.copy(
-            segmentPairs = history[historyIndex],
+            segmentPairs = pairs,
             canUndo = historyIndex > 0,
-            canRedo = historyIndex < history.size - 1
+            canRedo = historyIndex < history.size - 1,
+            successMessage = desc
         )
     }
 
@@ -244,6 +321,7 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
 
     fun updateExportSettings(settings: ExportSettings) {
         _state.value = _state.value.copy(exportSettings = settings)
+        savePrefs(settings, _state.value.playbackSpeed)
     }
 
     fun showExportDialog() { _state.value = _state.value.copy(showExportDialog = true) }
@@ -256,7 +334,7 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
         val cur = _state.value
         if (cur.audioPath.isEmpty() || cur.durationMs == 0L) return
         val context = getApplication<Application>()
-        val outputDir = File(context.getExternalFilesDir(null), "exports").apply { mkdirs() }
+        val outputDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "exports").apply { mkdirs() }
         val segments = cur.segmentPairs.mapIndexed { i, p -> Segment(i, p.startMs, p.endMs, p.fadeInMs, p.fadeOutMs) }
 
         viewModelScope.launch {
@@ -268,29 +346,31 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
                     editMode = cur.editMode,
                     durationMs = cur.durationMs,
                     settings = cur.exportSettings,
-                    outputDir = outputDir
+                    outputDir = outputDir,
+                    inputMimeType = cur.inputMimeType
                 )
                 if (files.isEmpty()) {
                     _state.value = _state.value.copy(isProcessing = false, errorMessage = "שגיאה בעיבוד הקובץ")
                     return@launch
                 }
-
-                val savedUris = if (cur.exportSettings.saveToMusicLibrary) {
-                    files.mapNotNull { f ->
-                        MediaStoreSaver.saveToMusicLibrary(context, f, cur.exportSettings.outputFormat.mimeType)
-                    }
-                } else emptyList()
-
+                val savedInInternal = outputDir.absolutePath.startsWith(context.filesDir.absolutePath)
+                val locationHint = if (savedInInternal) "זיכרון פנימי" else "זיכרון חיצוני"
                 _state.value = _state.value.copy(
                     isProcessing = false,
                     exportedFiles = files,
-                    successMessage = if (cur.exportSettings.saveToMusicLibrary && savedUris.isNotEmpty())
-                        "נשמר בספריית המוזיקה (${files.size} קבצים)" else null
+                    successMessage = "✓ נשמר ב$locationHint · תיקיית האפליקציה · ${files.size} קבצים"
                 )
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 _state.value = _state.value.copy(isProcessing = false, errorMessage = "שגיאה: ${e.message}")
             }
         }
+    }
+
+    private fun formatTime(ms: Long): String {
+        val totalSec = ms / 1000
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        return "$min:${sec.toString().padStart(2, '0')}"
     }
 
     fun clearMessages() {

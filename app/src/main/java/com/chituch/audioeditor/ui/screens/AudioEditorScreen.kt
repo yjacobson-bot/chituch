@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,10 +49,22 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var pendingSaveFile by remember { mutableStateOf<File?>(null) }
 
-    // System file picker fallback
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let { loadUri(context, it, vm) }
+    val saveElsewhereLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*")
+    ) { uri ->
+        val file = pendingSaveFile ?: return@rememberLauncherForActivityResult
+        pendingSaveFile = null
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().copyTo(out) }
+            val displayPath = uri.lastPathSegment?.substringAfterLast(':') ?: uri.toString()
+            scope.launch { snackbarHostState.showSnackbar("נשמר: $displayPath") }
+        } catch (_: Exception) {
+            scope.launch { snackbarHostState.showSnackbar("שגיאה בשמירה") }
+        }
     }
 
     LaunchedEffect(state.errorMessage) { state.errorMessage?.let { snackbarHostState.showSnackbar(it); vm.clearMessages() } }
@@ -104,14 +117,7 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                             Spacer(Modifier.height(16.dp))
                             Text("בחר שיר", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             Text("לחץ לפתיחת ספריית השירים", style = MaterialTheme.typography.bodySmall, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
-                            Spacer(Modifier.height(16.dp))
-                            // Secondary: system file picker
-                            OutlinedButton(onClick = { filePicker.launch(arrayOf("audio/*")) }, modifier = Modifier.fillMaxWidth(0.7f)) {
-                                Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("דפדפן קבצים", fontSize = 13.sp)
-                            }
-                            Text("MP3 · AAC · FLAC · WAV ועוד", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(top = 12.dp))
+                            Text("MP3 · AAC · FLAC · WAV ועוד", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(top = 16.dp))
                         }
                     } else {
                         Row(
@@ -165,6 +171,7 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                         onSegmentEndChanged = { id, ms, dragging -> vm.updateSegmentEnd(id, ms, !dragging) },
                                         onZoomChanged = vm::setWaveformZoom,
                                         onScrollChanged = vm::setWaveformScroll,
+                                        onZoomToSegment = { startMs, endMs -> vm.zoomToSegment(startMs, endMs) },
                                         modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                                     )
                                 }
@@ -201,12 +208,12 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                 ) {
                                     Text(formatTime(state.waveformScrollMs), color = Color(0xFF90A4AE), style = MaterialTheme.typography.bodySmall, fontSize = 10.sp)
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(onClick = { vm.setWaveformZoom(state.waveformZoom / 1.5f) }, modifier = Modifier.size(28.dp)) {
-                                            Icon(Icons.Default.ZoomOut, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(16.dp))
+                                        IconButton(onClick = { vm.setWaveformZoom(state.waveformZoom / 1.5f) }, modifier = Modifier.size(44.dp)) {
+                                            Icon(Icons.Default.ZoomOut, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(24.dp))
                                         }
-                                        Text("${state.waveformZoom.toInt()}×", color = Color.White, fontSize = 11.sp, modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)
-                                        IconButton(onClick = { vm.setWaveformZoom(state.waveformZoom * 1.5f) }, modifier = Modifier.size(28.dp)) {
-                                            Icon(Icons.Default.ZoomIn, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(16.dp))
+                                        Text("${state.waveformZoom.toInt()}×", color = Color.White, fontSize = 13.sp, modifier = Modifier.width(34.dp), textAlign = TextAlign.Center)
+                                        IconButton(onClick = { vm.setWaveformZoom(state.waveformZoom * 1.5f) }, modifier = Modifier.size(44.dp)) {
+                                            Icon(Icons.Default.ZoomIn, null, tint = Color(0xFF90A4AE), modifier = Modifier.size(24.dp))
                                         }
                                     }
                                     Text(
@@ -311,6 +318,15 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                                     IconButton(onClick = { vm.previewSegment(pair.id) }, modifier = Modifier.size(28.dp)) {
                                                         Icon(Icons.Default.PlayCircle, "נגן קטע", tint = color, modifier = Modifier.size(20.dp))
                                                     }
+                                                    val isLooping = state.loopingSegmentId == pair.id
+                                                    IconButton(onClick = { vm.toggleLoopSegment(pair.id) }, modifier = Modifier.size(28.dp)) {
+                                                        Icon(
+                                                            if (isLooping) Icons.Default.Repeat else Icons.Default.RepeatOne,
+                                                            "לולאה",
+                                                            tint = if (isLooping) color else Color.Gray,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
                                                     if (state.segmentPairs.size > 1) {
                                                         IconButton(onClick = { vm.removeSegmentPair(pair.id) }, modifier = Modifier.size(28.dp)) {
                                                             Icon(Icons.Default.Delete, "הסר", tint = Color.Gray, modifier = Modifier.size(16.dp))
@@ -379,8 +395,16 @@ fun AudioEditorScreen(vm: AudioEditorViewModel = viewModel()) {
                                                 Text(file.name, style = MaterialTheme.typography.bodySmall, color = Color(0xFF1B5E20))
                                                 Text(formatFileSize(file.length()), style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
                                             }
-                                            IconButton(onClick = { shareFile(context, file) }, modifier = Modifier.size(32.dp)) {
-                                                Icon(Icons.Default.Share, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                                            Row {
+                                                IconButton(onClick = {
+                                                    pendingSaveFile = file
+                                                    saveElsewhereLauncher.launch(file.name)
+                                                }, modifier = Modifier.size(32.dp)) {
+                                                    Icon(Icons.Default.SaveAlt, "שמור למיקום אחר", tint = Color(0xFF1565C0), modifier = Modifier.size(18.dp))
+                                                }
+                                                IconButton(onClick = { shareFile(context, file) }, modifier = Modifier.size(32.dp)) {
+                                                    Icon(Icons.Default.Share, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                                                }
                                             }
                                         }
                                     }
@@ -464,19 +488,6 @@ private fun ExportDialog(
                     }
                 }
 
-                HorizontalDivider()
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { onSettingsChanged(settings.copy(saveToMusicLibrary = !settings.saveToMusicLibrary)) },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("שמור בספריית מוזיקה", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Music/חיתוך/", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                    }
-                    Switch(checked = settings.saveToMusicLibrary, onCheckedChange = { onSettingsChanged(settings.copy(saveToMusicLibrary = it)) })
-                }
             }
         },
         confirmButton = { Button(onClick = onConfirm) { Text("ייצא") } },
@@ -541,16 +552,6 @@ private fun FadeSlider(label: String, valueMs: Long, color: Color, modifier: Mod
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────────
-
-private fun loadUri(context: android.content.Context, uri: Uri, vm: AudioEditorViewModel) {
-    try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
-    val fileName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-        val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-        c.moveToFirst(); if (ni >= 0) c.getString(ni) else "audio"
-    } ?: "audio"
-    val path = getRealPath(context, uri) ?: copyToCache(context, uri, fileName)?.absolutePath ?: ""
-    vm.loadAudio(uri, fileName, path)
-}
 
 private fun getRealPath(context: android.content.Context, uri: Uri): String? = try {
     if (uri.scheme == "file") uri.path

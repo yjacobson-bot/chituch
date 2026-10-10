@@ -16,9 +16,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.chituch.audioeditor.ui.theme.segmentColors
 import com.chituch.audioeditor.viewmodel.SegmentPair
 import kotlin.math.abs
@@ -37,6 +41,7 @@ fun WaveformView(
     onSegmentEndChanged: (Int, Long, Boolean) -> Unit,
     onZoomChanged: (Float) -> Unit,
     onScrollChanged: (Long) -> Unit,
+    onZoomToSegment: ((startMs: Long, endMs: Long) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0L) return
@@ -47,6 +52,14 @@ fun WaveformView(
 
     var canvasWidth by remember { mutableStateOf(0f) }
     val HANDLE_TOUCH_PX = 44f
+
+    val labelPaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            textSize = 28f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+    }
 
     fun xToMs(x: Float): Long = (startMs + (x / canvasWidth.coerceAtLeast(1f)) * visibleMs).toLong().coerceIn(0L, durationMs)
     fun msToX(ms: Long): Float {
@@ -67,7 +80,7 @@ fun WaveformView(
                     detectTransformGestures { _, pan, zoomDelta, _ ->
                         val newZoom = (zoomLevel * zoomDelta).coerceIn(1f, 30f)
                         onZoomChanged(newZoom)
-                        val panMs = -(pan.x / canvasWidth.coerceAtLeast(1f)) * visibleMs
+                        val panMs = -(pan.x / canvasWidth.coerceAtLeast(1f)) * visibleMs * 2.5f
                         onScrollChanged((scrollOffsetMs + panMs.toLong()))
                     }
                 }
@@ -88,11 +101,17 @@ fun WaveformView(
                             }
                             dragging = best
                         },
-                        onDrag = { change, _ ->
-                            val d = dragging ?: return@detectDragGestures
-                            val ms = xToMs(change.position.x)
-                            if (d.isStart) onSegmentStartChanged(d.segId, ms, true)
-                            else onSegmentEndChanged(d.segId, ms, true)
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val d = dragging
+                            if (d == null) {
+                                val panMs = -(dragAmount.x / canvasWidth.coerceAtLeast(1f)) * visibleMs * 2.5f
+                                onScrollChanged((scrollOffsetMs + panMs.toLong()))
+                            } else {
+                                val ms = xToMs(change.position.x)
+                                if (d.isStart) onSegmentStartChanged(d.segId, ms, true)
+                                else onSegmentEndChanged(d.segId, ms, true)
+                            }
                         },
                         onDragEnd = {
                             dragging?.let { d ->
@@ -107,11 +126,19 @@ fun WaveformView(
                         onDragCancel = { dragging = null }
                     )
                 }
-                .pointerInput(durationMs, scrollOffsetMs, zoomLevel) {
-                    detectTapGestures { offset ->
-                        canvasWidth = size.width.toFloat()
-                        onSeek(xToMs(offset.x))
-                    }
+                .pointerInput(durationMs, scrollOffsetMs, zoomLevel, segmentPairs, activeSegmentId) {
+                    detectTapGestures(
+                        onTap = { offset ->
+                            canvasWidth = size.width.toFloat()
+                            onSeek(xToMs(offset.x))
+                        },
+                        onDoubleTap = { _ ->
+                            val activePair = segmentPairs.find { it.id == activeSegmentId }
+                            if (activePair != null) {
+                                onZoomToSegment?.invoke(activePair.startMs, activePair.endMs)
+                            }
+                        }
+                    )
                 }
         ) {
             canvasWidth = size.width
@@ -148,15 +175,76 @@ fun WaveformView(
                 drawRect(color = color.copy(alpha = 0.18f), topLeft = Offset(sx, 0f), size = Size(w, size.height))
 
                 val strokeW = if (pair.id == activeSegmentId) 4.dp.toPx() else 2.5.dp.toPx()
-                val circleR = if (pair.id == activeSegmentId) 10.dp.toPx() else 7.dp.toPx()
+                val triSize = if (pair.id == activeSegmentId) 14.dp.toPx() else 10.dp.toPx()
 
                 if (pair.startMs in startMs..endMs) {
                     drawLine(color = color, start = Offset(sx, 0f), end = Offset(sx, size.height), strokeWidth = strokeW)
-                    drawCircle(color = color, radius = circleR, center = Offset(sx, centerY))
+                    val topPath = Path().apply {
+                        moveTo(sx - triSize / 2, 0f)
+                        lineTo(sx + triSize / 2, 0f)
+                        lineTo(sx, triSize)
+                        close()
+                    }
+                    drawPath(topPath, color = color)
+                    val botPath = Path().apply {
+                        moveTo(sx - triSize / 2, size.height)
+                        lineTo(sx + triSize / 2, size.height)
+                        lineTo(sx, size.height - triSize)
+                        close()
+                    }
+                    drawPath(botPath, color = color)
+                    // Timestamp label above start handle
+                    drawIntoCanvas { canvas ->
+                        val label = formatTime(pair.startMs)
+                        labelPaint.color = android.graphics.Color.argb(230, (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())
+                        val textW = labelPaint.measureText(label)
+                        val lx = (sx - textW / 2f).coerceIn(2f, size.width - textW - 2f)
+                        // Background pill
+                        val bgPaint = android.graphics.Paint().apply {
+                            this.color = android.graphics.Color.argb(180, 20, 20, 40)
+                            isAntiAlias = true
+                        }
+                        val pad = 4f
+                        canvas.nativeCanvas.drawRoundRect(
+                            lx - pad, triSize + 4f, lx + textW + pad, triSize + labelPaint.textSize + 8f,
+                            6f, 6f, bgPaint
+                        )
+                        canvas.nativeCanvas.drawText(label, lx, triSize + labelPaint.textSize + 2f, labelPaint)
+                    }
                 }
                 if (pair.endMs in startMs..endMs) {
                     drawLine(color = color, start = Offset(ex, 0f), end = Offset(ex, size.height), strokeWidth = strokeW)
-                    drawCircle(color = color, radius = circleR, center = Offset(ex, centerY))
+                    val topPath = Path().apply {
+                        moveTo(ex - triSize / 2, 0f)
+                        lineTo(ex + triSize / 2, 0f)
+                        lineTo(ex, triSize)
+                        close()
+                    }
+                    drawPath(topPath, color = color)
+                    val botPath = Path().apply {
+                        moveTo(ex - triSize / 2, size.height)
+                        lineTo(ex + triSize / 2, size.height)
+                        lineTo(ex, size.height - triSize)
+                        close()
+                    }
+                    drawPath(botPath, color = color)
+                    // Timestamp label above end handle
+                    drawIntoCanvas { canvas ->
+                        val label = formatTime(pair.endMs)
+                        labelPaint.color = android.graphics.Color.argb(230, (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())
+                        val textW = labelPaint.measureText(label)
+                        val lx = (ex - textW / 2f).coerceIn(2f, size.width - textW - 2f)
+                        val bgPaint = android.graphics.Paint().apply {
+                            this.color = android.graphics.Color.argb(180, 20, 20, 40)
+                            isAntiAlias = true
+                        }
+                        val pad = 4f
+                        canvas.nativeCanvas.drawRoundRect(
+                            lx - pad, triSize + 4f, lx + textW + pad, triSize + labelPaint.textSize + 8f,
+                            6f, 6f, bgPaint
+                        )
+                        canvas.nativeCanvas.drawText(label, lx, triSize + labelPaint.textSize + 2f, labelPaint)
+                    }
                 }
             }
 

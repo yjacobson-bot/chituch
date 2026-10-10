@@ -4,10 +4,40 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Waveform bars (white, symmetric, centered at y=40) -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,30 L54,78 M42,40 L42,68 M66,40 L66,68 M30,50 L30,58 M78,50 L78,58 M36,45 L36,63 M72,45 L72,63"/>
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M22,32 L22,48 M32,24 L32,56 M42,19 L42,61 M52,16 L52,64 M62,19 L62,61 M72,24 L72,56 M82,32 L82,48"/>
+
+    <!-- Scissors blade 1 -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M38,72 L70,72 L65,80 L43,80 Z"/>
+        android:strokeColor="#FFE082"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M44,68 L82,84"/>
+
+    <!-- Scissors blade 2 -->
+    <path
+        android:strokeColor="#FFE082"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M44,84 L82,68"/>
+
+    <!-- Handle circle top: center (38,68) r=7 -->
+    <path
+        android:fillColor="#FFE082"
+        android:pathData="M38,68 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0"/>
+
+    <!-- Handle circle bottom: center (38,82) r=7 -->
+    <path
+        android:fillColor="#FFE082"
+        android:pathData="M38,82 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0"/>
+
+    <!-- Pivot dot at blade crossing (~63,76): background color -->
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M63,76 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0"/>
 </vector>
