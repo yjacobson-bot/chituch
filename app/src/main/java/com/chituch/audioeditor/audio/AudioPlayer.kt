@@ -45,12 +45,13 @@ class AudioPlayer(private val context: Context) {
                 onPlaybackComplete?.invoke()
             }
         }
-        applySpeed()
+        // Don't call applySpeed() here — setting PlaybackParams on a prepared-but-not-playing
+        // MediaPlayer can auto-start playback on some Android versions.
     }
 
     fun play() {
         previewEndMs = Long.MAX_VALUE
-        mediaPlayer?.let { if (!it.isPlaying) { it.start(); startProgressTracking() } }
+        mediaPlayer?.let { if (!it.isPlaying) { applySpeed(); it.start(); startProgressTracking() } }
     }
 
     fun playSegment(startMs: Long, endMs: Long, loop: Boolean = false) {
@@ -59,7 +60,7 @@ class AudioPlayer(private val context: Context) {
         _isLooping = loop
         mediaPlayer?.let {
             it.seekTo(startMs.toInt())
-            if (!it.isPlaying) it.start()
+            if (!it.isPlaying) { applySpeed(); it.start() }
             startProgressTracking()
         }
     }

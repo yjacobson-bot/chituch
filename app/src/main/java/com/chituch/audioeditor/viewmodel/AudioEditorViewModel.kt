@@ -52,7 +52,8 @@ data class AudioEditorState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val loopingSegmentId: Int? = null,
-    val undoDescription: String? = null
+    val undoDescription: String? = null,
+    val autoSaveElsewhere: Boolean = false
 )
 
 class AudioEditorViewModel(application: Application) : AndroidViewModel(application) {
@@ -326,6 +327,7 @@ class AudioEditorViewModel(application: Application) : AndroidViewModel(applicat
 
     fun showExportDialog() { _state.value = _state.value.copy(showExportDialog = true) }
     fun hideExportDialog() { _state.value = _state.value.copy(showExportDialog = false) }
+    fun setAutoSaveElsewhere(v: Boolean) { _state.value = _state.value.copy(autoSaveElsewhere = v) }
 
     fun openAudioBrowser() { _state.value = _state.value.copy(showAudioBrowser = true) }
     fun closeAudioBrowser() { _state.value = _state.value.copy(showAudioBrowser = false) }
